@@ -19,7 +19,7 @@ echo reseting
 git reset --hard
 echo reset
 echo cleaning repo
-git clean -fdx
+sudo git clean -fdx
 echo cleaned repo
 echo switching to main
 git switch main
@@ -35,4 +35,4 @@ sudo rm /apps/DiscordBot/*
 echo cleaned output folder
 echo publishing
 sudo dotnet publish -o=/apps/DiscordBot/
-echo pubblished
+echo published

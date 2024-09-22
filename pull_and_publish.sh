@@ -5,9 +5,11 @@ echo -n 'This will run "git reset --hard" and "git clean -fdx". Are you sure you
 while [ true ]
 do
     read answer
-    if [ "$answer" = 'yes' ] then
+    if [ "$answer" = 'yes' ]
+    then
         break
-    elif [ "$answer" = 'no' ] then    
+    elif [ "$answer" = 'no' ]
+    then
 	    exit
     else
         echo -n 'Invalid answer, input "yes" or "no": '

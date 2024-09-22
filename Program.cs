@@ -2,12 +2,18 @@
 using Discord.Rest;
 using Discord.WebSocket;
 using DiscordBot.Log;
+using DiscordBot.Models;
 using System;
 using System.Collections.Generic;
+using System.Dynamic;
 using System.IO;
+using System.Linq;
+using System.Net.Http;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using static DiscordBot.Log.Logger;
 
 namespace DiscordBot;
 
@@ -40,6 +46,7 @@ internal class Program
     static void Main(string[] args)
     {
         AppDomain.CurrentDomain.ProcessExit += OnExit;
+        AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
 
         _logger.Log(LogSeverity.Info, $"(App | Initialization): Initializing config.");
         string token;
@@ -75,7 +82,52 @@ internal class Program
         task = _client.StartAsync();
         task.Wait();
 
-        Thread.Sleep(Timeout.Infinite);
+        const string URL = "https://wise.com/gateway/v3/quotes";
+        const string CONTENT = "{\"sourceAmount\":1000,\"sourceCurrency\":\"EUR\",\"targetCurrency\":\"BRL\",\"guaranteedTargetAmount\":false,\"type\":\"REGULAR\"}";
+
+        HttpClient httpClient = new();
+        StringContent content = new(CONTENT, Encoding.UTF8, "application/json");
+
+        while (true)
+        {
+            if (_greetedGuilds.Count > 0)
+            {
+                Task<HttpResponseMessage> post = httpClient.PostAsync(URL, content);
+                post.Wait();
+
+                Task<string> postContent = post.Result.Content.ReadAsStringAsync();
+                postContent.Wait();
+
+                JsonDocument jsonDocument = JsonDocument.Parse(postContent.Result);
+                if (jsonDocument == null)
+                {
+                    _logger.Log(LogSeverity.Error, $"(App | WiseRequest): Could not deserialize\n{postContent.Result}");
+                    continue;
+                }
+
+                dynamic jsonObject = jsonDocument.ToExpandoObject();
+
+                string message = $"{1:n2}€ = {(decimal)jsonObject.rate:n5}R$";
+
+                Task[] tasks = new Task[_client.Guilds.Count];
+                int count = 0;
+                foreach (SocketGuild guild in _client.Guilds)
+                {
+                    tasks[count] = MessageGuild(guild, message);
+                    count++;
+                }
+                Task.WaitAll(tasks);
+
+                Thread.Sleep(300_000);
+            }
+            else
+                Thread.Sleep(1_000);
+        }
+    }
+
+    private static void OnUnhandledException(object sender, UnhandledExceptionEventArgs e)
+    {
+        _logger.Log(LogSeverity.Critical, $"(App | OnUnhandledException): {e}");
     }
 
     private static void OnExit(object? sender, EventArgs e)
@@ -84,23 +136,14 @@ internal class Program
         if (_client != null)
         {
             const string MESSAGE = "I am going to sleep.";
-            foreach (var guild in _client.Guilds)
+            Task[] tasks = new Task[_client.Guilds.Count];
+            int count = 0;
+            foreach (SocketGuild guild in _client.Guilds)
             {
-                if (guild.DefaultChannel.GetChannelType() == ChannelType.Text)
-                    guild.DefaultChannel.SendMessageAsync(MESSAGE).Wait();
-                else if (guild.TextChannels.Count > 0)
-                {
-                    var textChannels = guild.TextChannels.GetEnumerator();
-                    while (textChannels.MoveNext())
-                    {
-                        if (textChannels.Current.GetChannelType() == ChannelType.Text)
-                        {
-                            textChannels.Current.SendMessageAsync(MESSAGE).Wait();
-                            break;
-                        }
-                    }
-                }
+                tasks[count] = MessageGuild(guild, MESSAGE);
+                count++;
             }
+            Task.WaitAll(tasks);
         }
         _logger.Log(LogSeverity.Info, "(App | OnExit): Exited");
     }
@@ -121,25 +164,27 @@ internal class Program
 
         const string MESSAGE = "I am awake.";
         if (!_greetedGuilds.Contains(guild.Id))
-        {
-            if (guild.DefaultChannel.GetChannelType() == ChannelType.Text)
-                guild.DefaultChannel.SendMessageAsync(MESSAGE).Wait();
-            else if (guild.TextChannels.Count > 0)
-            {
-                using IEnumerator<SocketTextChannel> textChannels = guild.TextChannels.GetEnumerator();
-                while (textChannels.MoveNext())
-                {
-                    if (textChannels.Current.GetChannelType() == ChannelType.Text)
-                    {
-                        await textChannels.Current.SendMessageAsync(MESSAGE);
-                        break;
-                    }
-                }
-            }
-            _greetedGuilds.Add(guild.Id);
-        }
+            await MessageGuild(guild, MESSAGE);
     }
 
+    private static async Task MessageGuild(SocketGuild guild, string message)
+    {
+        if (guild.DefaultChannel.GetChannelType() == ChannelType.Text)
+            guild.DefaultChannel.SendMessageAsync(message).Wait();
+        else if (guild.TextChannels.Count > 0)
+        {
+            using IEnumerator<SocketTextChannel> textChannels = guild.TextChannels.OrderBy(c => c.CreatedAt).GetEnumerator();
+            while (textChannels.MoveNext())
+            {
+                if (textChannels.Current.GetChannelType() == ChannelType.Text)
+                {
+                    await textChannels.Current.SendMessageAsync(message);
+                    break;
+                }
+            }
+        }
+        _greetedGuilds.Add(guild.Id);
+    }
 
     private static async Task OnReady()
     {

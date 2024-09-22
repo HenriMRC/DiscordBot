@@ -1,6 +1,7 @@
 ﻿using Discord;
 using Discord.Rest;
 using Discord.WebSocket;
+using DiscordBot.Log;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -29,7 +30,11 @@ internal class Program
 
         _greetedGuilds = [];
 
-        _logger = new(LogSeverity.Debug, new ConsoleWriter());
+        _logger = new(LogSeverity.Debug,
+#if DEBUG
+            new ConsoleWriter(),
+#endif
+            new FileWriter());
     }
 
     static void Main(string[] args)

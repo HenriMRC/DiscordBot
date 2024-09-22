@@ -1,6 +1,10 @@
-﻿namespace DiscordBot;
+﻿using System.Text.Json.Serialization;
 
-internal class Config
+namespace DiscordBot;
+
+[method: JsonConstructor]
+public class Config(string token)
 {
-    public string token { get; set; } = string.Empty;
+    [JsonPropertyName("token")]
+    public readonly string Token = token;
 }

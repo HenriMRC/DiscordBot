@@ -1,16 +1,20 @@
 ﻿using Discord;
 using Discord.Rest;
 using Discord.WebSocket;
+using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace DiscordBot;
 
 internal class Program
 {
-    private static DiscordSocketClient _client;
-    private static HashSet<ulong> _greetedGuilds = new();
-
-    private const ConsoleColor DEFAULT_COLOR = ConsoleColor.Green;
+    private readonly static DiscordSocketClient _client;
+    private readonly static HashSet<ulong> _greetedGuilds;
+    private readonly static Logger _logger;
 
     static Program()
     {
@@ -20,100 +24,104 @@ internal class Program
         _client.Log += DiscordLog;
         _client.Connected += OnConnected;
         _client.Ready += OnReady;
-        _client.GuildAvailable += OnGuildAvailabe;
+        _client.GuildAvailable += OnGuildAvailable;
         _client.Disconnected += OnDisconnected;
+
+        _greetedGuilds = [];
+
+        _logger = new(LogSeverity.Debug, new ConsoleWriter());
     }
 
     static void Main(string[] args)
     {
-        Console.ForegroundColor = DEFAULT_COLOR;
+        AppDomain.CurrentDomain.ProcessExit += OnExit;
+
+        _logger.Log(LogSeverity.Info, $"(App | Initialization): Initializing config.");
         string token;
         if (args.Length == 0)
         {
             FileInfo configFileInfo = new("./config.json");
             if (configFileInfo.Exists)
             {
-                using (StreamReader file = new(configFileInfo.OpenRead()))
+                using StreamReader file = new(configFileInfo.OpenRead());
+                string configJson = file.ReadToEnd();
+                JsonSerializerOptions jsonOptions = new(JsonSerializerOptions.Default) { IncludeFields = true };
+                Config? config = JsonSerializer.Deserialize<Config>(configJson, jsonOptions);
+                if (config == null)
                 {
-                    string configJSON = file.ReadToEnd();
-                    Config? config = JsonSerializer.Deserialize<Config>(configJSON);
-                    if (config == null)
-                    {
-                        Console.WriteLine("Could not deserialize config.json. Exiting...");
-                        return;
-                    }
-                    token = config.token;
+                    _logger.Log(LogSeverity.Critical, $"(App | Initialization): Could not deserialize config.json:\n{configFileInfo}");
+                    return;
                 }
+                token = config.Token;
             }
             else
             {
-                Console.WriteLine("No argument or config file. Exiting...");
+                _logger.Log(LogSeverity.Critical, $"(App | Initialization): No argument or config file.");
                 return;
             }
         }
         else
             token = args[0];
 
-        AppDomain.CurrentDomain.ProcessExit += OnExit;
-        Console.WriteLine("Intializing bot...");
+        _logger.Log(LogSeverity.Info, $"(App | Initialization): Initializing bot.");
 
         Task task = _client.LoginAsync(TokenType.Bot, token);
         task.Wait();
         task = _client.StartAsync();
         task.Wait();
 
-        // Block the program until it is closed
-        task = Task.Delay(-1);
-        task.Wait();
+        Thread.Sleep(Timeout.Infinite);
     }
 
     private static void OnExit(object? sender, EventArgs e)
     {
-        if (_client == null)
-            return;
-
-        const string MESSAGE = "I am going to sleep.";
-        foreach (var guild in _client.Guilds)
+        _logger.Log(LogSeverity.Info, "(App | OnExit): Exiting");
+        if (_client != null)
         {
-            if (guild.DefaultChannel.GetChannelType() == ChannelType.Text)
-                guild.DefaultChannel.SendMessageAsync(MESSAGE).Wait();
-            else if (guild.TextChannels.Count > 0)
+            const string MESSAGE = "I am going to sleep.";
+            foreach (var guild in _client.Guilds)
             {
-                var textChannels = guild.TextChannels.GetEnumerator();
-                while (textChannels.MoveNext())
+                if (guild.DefaultChannel.GetChannelType() == ChannelType.Text)
+                    guild.DefaultChannel.SendMessageAsync(MESSAGE).Wait();
+                else if (guild.TextChannels.Count > 0)
                 {
-                    if (textChannels.Current.GetChannelType() == ChannelType.Text)
+                    var textChannels = guild.TextChannels.GetEnumerator();
+                    while (textChannels.MoveNext())
                     {
-                        textChannels.Current.SendMessageAsync(MESSAGE).Wait();
-                        break;
+                        if (textChannels.Current.GetChannelType() == ChannelType.Text)
+                        {
+                            textChannels.Current.SendMessageAsync(MESSAGE).Wait();
+                            break;
+                        }
                     }
                 }
             }
         }
+        _logger.Log(LogSeverity.Info, "(App | OnExit): Exited");
     }
 
     private static async Task OnConnected()
     {
-        await Console.Out.WriteLineAsync($"Bot connected: {_client.CurrentUser.Username}.");
-        await LogBot();
-    }
-    private static async Task OnDisconnected(Exception exception)
-    {
-        await Console.Out.WriteLineAsync($"Disconnected.");
-        await LogBot();
+        await Task.Run(() => _logger.Log(LogSeverity.Info, $"(App | Connection): Bot ({_client.CurrentUser.Username}) connected. {LogBot()}"));
     }
 
-    private static async Task OnGuildAvailabe(SocketGuild guild)
+    private static async Task OnDisconnected(Exception exception)
     {
+        await Task.Run(() => _logger.Log(LogSeverity.Info, $"(App | Connection): Bot ({_client.CurrentUser.Username}) disconnected. {LogBot()}"));
+    }
+
+    private static async Task OnGuildAvailable(SocketGuild guild)
+    {
+        await Task.Run(() => _logger.Log(LogSeverity.Info, $"(App | Connection): Guild ({guild.Name}) connected."));
+
         const string MESSAGE = "I am awake.";
-        Console.WriteLine($"Guild connected: {guild.Name}");
         if (!_greetedGuilds.Contains(guild.Id))
         {
             if (guild.DefaultChannel.GetChannelType() == ChannelType.Text)
                 guild.DefaultChannel.SendMessageAsync(MESSAGE).Wait();
             else if (guild.TextChannels.Count > 0)
             {
-                var textChannels = guild.TextChannels.GetEnumerator();
+                using IEnumerator<SocketTextChannel> textChannels = guild.TextChannels.GetEnumerator();
                 while (textChannels.MoveNext())
                 {
                     if (textChannels.Current.GetChannelType() == ChannelType.Text)
@@ -130,21 +138,7 @@ internal class Program
 
     private static async Task OnReady()
     {
-        //foreach (var guild in _client.Guilds)
-        //{
-        //    Task task;
-        //    int count = 0;
-        //    do
-        //    {
-        //        await Console.Out.WriteLineAsync($"Downloading({++count}) users for guild: {guild.Name}");
-        //        task = guild.DownloadUsersAsync();
-        //        await task;
-        //    }
-        //    while (task.Status != TaskStatus.RanToCompletion);
-        //    await Console.Out.WriteLineAsync($"Downloaded users for guild: {guild.Name}");
-        //}
-
-        await Console.Out.WriteLineAsync($"Bot ready: {_client.CurrentUser.Username}.");
+        await Task.Run(() => _logger.Log(LogSeverity.Info, $"(App | Bot): Bot ({_client.CurrentUser.Username}) ready. {LogBot()}"));
     }
 
     private static async Task MessageReceivedAsync(SocketMessage message)
@@ -152,66 +146,33 @@ internal class Program
         if (message.Author.IsBot)
             return;
 
-        Console.WriteLine($"[{message}] Message received:");
-        Console.WriteLine(message.Content);
+        _logger.Log(LogSeverity.Info, $"(App | MessageReceived): {message.Content}");
 
         Task<RestUserMessage> sendTask = message.Channel.SendMessageAsync("Message received");
         await sendTask;
-        Console.WriteLine($"Message sent: {sendTask.Status}.");
+        _logger.Log(LogSeverity.Info, $"(App | MessageReceived): Message sent {sendTask.Status}");
     }
 
-    private static async Task LogBot()
+    private static string LogBot()
     {
-        await Console.Out.WriteLineAsync($"Bot status: [ {nameof(_client.Activity)}: {_client.Activity?.Name ?? "null"} | " +
-                                         $"{nameof(_client.ConnectionState)}: {_client.ConnectionState} | {nameof(_client.LoginState)}: {_client.LoginState} | " +
-                                         $"{nameof(_client.Status)}: {_client.Status} ]");
+        return $"Bot status: [ {nameof(_client.Activity)}: {_client.Activity?.Name ?? "null"} | " +
+               $"{nameof(_client.ConnectionState)}: {_client.ConnectionState} | {nameof(_client.LoginState)}: {_client.LoginState} | " +
+               $"{nameof(_client.Status)}: {_client.Status} ]";
     }
 
-    private static async Task DiscordLog(LogMessage message)
+    private static async Task DiscordLog(LogMessage logMessage)
     {
-        switch (message.Severity)
-        {
-            //
-            // Summary:
-            //     Logs that contain the most severe level of error. This type of error indicate
-            //     that immediate attention may be required.
-            case LogSeverity.Critical:
-                Console.ForegroundColor = ConsoleColor.Red;
-                break;
-            //
-            // Summary:
-            //     Logs that highlight when the flow of execution is stopped due to a failure.
-            case LogSeverity.Error:
-                Console.ForegroundColor = ConsoleColor.DarkYellow;
-                break;
-            //
-            // Summary:
-            //     Logs that highlight an abnormal activity in the flow of execution.
-            case LogSeverity.Warning:
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                break;
-            //
-            // Summary:
-            //     Logs that track the general flow of the application.
-            case LogSeverity.Info:
-                Console.ForegroundColor = ConsoleColor.Gray;
-                break;
-            //
-            // Summary:
-            //     Logs that are used for interactive investigation during development.
-            case LogSeverity.Verbose:
-            //
-            // Summary:
-            //     Logs that contain the most detailed messages.
-            case LogSeverity.Debug:
-                Console.ForegroundColor = ConsoleColor.DarkGray;
-                break;
-        }
+        string message;
+        if (logMessage.Exception == null)
+            message = $"(Discord | {logMessage.Source}): {logMessage.Message}";
+        else
+            message =
+                $"""
+                (Discord | {logMessage.Source}: {logMessage.Message}
+                Exception: {logMessage.Exception.Message}
+                StackTrace: {logMessage.Exception.StackTrace}
+                """;
 
-        await Console.Out.WriteLineAsync($"Discord ({message.Source} | {message.Severity}): {message.Message}");
-        if (message.Exception != null)
-            await Console.Out.WriteLineAsync($"Exception: {message.Exception.Message}\nStackTrace: {message.Exception.StackTrace}");
-
-        Console.ForegroundColor = DEFAULT_COLOR;
+        await Task.Run(() => _logger.Log(logMessage.Severity, message));
     }
 }

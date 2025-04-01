@@ -34,5 +34,5 @@ echo cleaning output folder
 sudo rm /apps/DiscordBot/*
 echo cleaned output folder
 echo publishing
-sudo dotnet publish -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o=/apps/DiscordBot/
+sudo dotnet publish ./DiscordBot.csproj -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o=/apps/DiscordBot/
 echo published

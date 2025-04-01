@@ -160,7 +160,7 @@ internal class Program
     {
         await Task.Run(() => _logger.Log(LogSeverity.Info, $"(App | Connection): Guild ({guild.Name}) connected."));
 
-        string msg = $"I am awake.\n\tDirectory: {Environment.CurrentDirectory}\n\tAssembly: {AppContext.BaseDirectory}";
+        string msg = $"I am awake.\n\tEnvironment: {Environment.CurrentDirectory}\n\tAppContext: {AppContext.BaseDirectory}";
         if (_greetedGuilds.Add(guild.Id))
             await MessageGuild(guild, msg);
     }

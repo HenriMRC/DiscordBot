@@ -5,11 +5,9 @@ using DiscordBot.Log;
 using DiscordBot.Models;
 using System;
 using System.Collections.Generic;
-using System.Dynamic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
-using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -162,7 +160,7 @@ internal class Program
     {
         await Task.Run(() => _logger.Log(LogSeverity.Info, $"(App | Connection): Guild ({guild.Name}) connected."));
 
-        string msg = $"I am awake.\n\tDirectory: {Environment.CurrentDirectory}\n\tAssembly: {Assembly.GetEntryAssembly()?.Location ?? "NULL"}";
+        string msg = $"I am awake.\n\tDirectory: {Environment.CurrentDirectory}\n\tAssembly: {AppContext.BaseDirectory}";
         if (_greetedGuilds.Add(guild.Id))
             await MessageGuild(guild, msg);
     }

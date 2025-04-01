@@ -21,6 +21,10 @@ internal class Program
     private readonly static HashSet<ulong> _greetedGuilds;
     private readonly static Logger _logger;
 
+    private static decimal _lastRate = -1;
+    private static decimal _lowerBound = 6.1m;
+    private static decimal _upperBound = 6.2m;
+
     static Program()
     {
         DiscordSocketConfig socketConfig = new() { GatewayIntents = GatewayIntents.All };
@@ -105,16 +109,33 @@ internal class Program
 
                 dynamic jsonObject = jsonDocument.ToExpandoObject();
 
-                string message = $"{1:n2}€ = {(decimal)jsonObject.rate:n5}R$";
+                _lastRate = (decimal)jsonObject.rate;
 
-                Task[] tasks = new Task[_client.Guilds.Count];
-                int count = 0;
-                foreach (SocketGuild guild in _client.Guilds)
+                string? message = null;
+                if (_lastRate <= _lowerBound)
+                    message =
+                        $"""
+                        Lower bound reached:
+                            {1:n2}€ = {(decimal)jsonObject.rate:n5}R$
+                        """;
+                else if (_lastRate >= _upperBound)
+                    message =
+                        $"""
+                        Upper bound reached:
+                            {1:n2}€ = {(decimal)jsonObject.rate:n5}R$
+                        """;
+
+                if (message != null)
                 {
-                    tasks[count] = MessageGuild(guild, message);
-                    count++;
+                    Task[] tasks = new Task[_client.Guilds.Count];
+                    int count = 0;
+                    foreach (SocketGuild guild in _client.Guilds)
+                    {
+                        tasks[count] = MessageGuild(guild, message);
+                        count++;
+                    }
+                    Task.WaitAll(tasks);
                 }
-                Task.WaitAll(tasks);
 
                 Thread.Sleep(300_000);
             }
@@ -160,7 +181,18 @@ internal class Program
     {
         await Task.Run(() => _logger.Log(LogSeverity.Info, $"(App | Connection): Guild ({guild.Name}) connected."));
 
-        string msg = $"I am awake.\n\tEnvironment: {Environment.CurrentDirectory}\n\tAppContext: {AppContext.BaseDirectory}";
+        string msg =
+            $"""
+            I am awake.
+
+                Variables:
+                 - Environment: {Environment.CurrentDirectory}
+            - AppContext: {AppContext.BaseDirectory}
+            
+                Configuration:
+                 - Lower bound: {_lowerBound:n2}
+            - Upper bound: {_upperBound:n2}
+            """;
         if (_greetedGuilds.Add(guild.Id))
             await MessageGuild(guild, msg);
     }
@@ -191,13 +223,34 @@ internal class Program
 
     private static async Task MessageReceivedAsync(SocketMessage message)
     {
-        if (message.Author.IsBot)
+        const string CMD_UPDATE = "update";
+
+        if (message.Author.IsBot || message.Channel is not SocketTextChannel channel)
             return;
 
         _logger.Log(LogSeverity.Info, $"(App | MessageReceived): {message.Content}");
 
-        Task<RestUserMessage> sendTask = message.Channel.SendMessageAsync("Message received");
+        string content = message.Content;
+        string response;
+        if (content == CMD_UPDATE)
+        {
+            if (_lastRate < 0)
+                response = "Rate not updated yet.";
+            else
+                response = $"{1:n2}€ = {_lastRate:n5}R$";
+        }
+        else
+        {
+            response = $"Command unknown:\n{content}";
+        }
+
+        //Task<SocketThreadChannel> threadCreationTask = channel.CreateThreadAsync(content, message: message);
+        //await threadCreationTask;
+        //SocketThreadChannel thread = threadCreationTask.Result;
+
+        Task<RestUserMessage> sendTask = channel.SendMessageAsync(response, messageReference: new(message.Id));
         await sendTask;
+
         _logger.Log(LogSeverity.Info, $"(App | MessageReceived): Message sent {sendTask.Status}");
     }
 

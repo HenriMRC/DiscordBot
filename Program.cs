@@ -9,11 +9,11 @@ using System.Dynamic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using static DiscordBot.Log.Logger;
 
 namespace DiscordBot;
 
@@ -26,7 +26,7 @@ internal class Program
     static Program()
     {
         DiscordSocketConfig socketConfig = new() { GatewayIntents = GatewayIntents.All };
-        _client = new(socketConfig);
+        _client = new DiscordSocketClient(socketConfig);
         _client.MessageReceived += MessageReceivedAsync;
         _client.Log += DiscordLog;
         _client.Connected += OnConnected;
@@ -83,14 +83,14 @@ internal class Program
         task.Wait();
 
         const string URL = "https://wise.com/gateway/v3/quotes";
-        const string CONTENT = "{\"sourceAmount\":1000,\"sourceCurrency\":\"EUR\",\"targetCurrency\":\"BRL\",\"guaranteedTargetAmount\":false,\"type\":\"REGULAR\"}";
+        const string CONTENT = @"{""sourceAmount"":1000,""sourceCurrency"":""EUR"",""targetCurrency"":""BRL"",""guaranteedTargetAmount"":false,""type"":""REGULAR""}";
 
         HttpClient httpClient = new();
         StringContent content = new(CONTENT, Encoding.UTF8, "application/json");
 
         while (true)
         {
-            if (_greetedGuilds.Count > 0)
+            if (_client.Guilds.Count > 0)
             {
                 Task<HttpResponseMessage> post = httpClient.PostAsync(URL, content);
                 post.Wait();
@@ -162,9 +162,9 @@ internal class Program
     {
         await Task.Run(() => _logger.Log(LogSeverity.Info, $"(App | Connection): Guild ({guild.Name}) connected."));
 
-        const string MESSAGE = "I am awake.";
-        if (!_greetedGuilds.Contains(guild.Id))
-            await MessageGuild(guild, MESSAGE);
+        string msg = $"I am awake.\n\tDirectory: {Environment.CurrentDirectory}\n\tAssembly: {Assembly.GetEntryAssembly()?.Location ?? "NULL"}";
+        if (_greetedGuilds.Add(guild.Id))
+            await MessageGuild(guild, msg);
     }
 
     private static async Task MessageGuild(SocketGuild guild, string message)
@@ -178,12 +178,12 @@ internal class Program
             {
                 if (textChannels.Current.GetChannelType() == ChannelType.Text)
                 {
-                    await textChannels.Current.SendMessageAsync(message);
+                    await textChannels.Current.SendMessageAsync(message)
+                        .ContinueWith(m => _logger.Log(LogSeverity.Info, $"(App | SendMessage): {m.Status} Message sent: {m.Result.Content}"));
                     break;
                 }
             }
         }
-        _greetedGuilds.Add(guild.Id);
     }
 
     private static async Task OnReady()

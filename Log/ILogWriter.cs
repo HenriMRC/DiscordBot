@@ -1,6 +1,8 @@
-﻿namespace DiscordBot.Log;
+﻿using System;
 
-public interface ILogWriter
+namespace DiscordBot.Log;
+
+public interface ILogWriter : IDisposable
 {
     void Write(Logger.Message message);
 }

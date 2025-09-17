@@ -5,6 +5,7 @@ using DiscordBot.Log;
 using DiscordBot.Models;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -90,6 +91,27 @@ internal class Program
         HttpClient httpClient = new();
         StringContent content = new(CONTENT, Encoding.UTF8, "application/json");
 
+        Task processLogging = Task.Run(ProcessLog);
+        static void ProcessLog()
+        {
+            Process process = Process.GetCurrentProcess();
+            long gc = GC.GetTotalMemory(false);
+            while (true)
+            {
+                string msg = $"""
+                    
+                    Stats:
+                    Working Set: {process.WorkingSet64 / 1024} kB
+                    Virtual Memory: {process.VirtualMemorySize64 / 1024} kB
+                    Private Memory: {process.PrivateMemorySize64 / 1024} kB
+                    GC Total Memory: {gc / 1024} kB
+                    """;
+                _logger.Log(LogSeverity.Info, msg);
+
+                Thread.Sleep(3_600_000);
+            }
+        }
+
         while (true)
         {
             if (_client.Guilds.Count > 0)
@@ -165,6 +187,7 @@ internal class Program
             Task.WaitAll(tasks);
         }
         _logger.Log(LogSeverity.Info, "(App | OnExit): Exited");
+        _logger.Dispose();
     }
 
     private static async Task OnConnected()

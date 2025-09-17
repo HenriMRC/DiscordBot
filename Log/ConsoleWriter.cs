@@ -57,4 +57,6 @@ internal class ConsoleWriter : ILogWriter
 
         Console.ForegroundColor = DEFAULT_COLOR;
     }
+
+    public void Dispose() { }
 }

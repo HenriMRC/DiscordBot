@@ -3,7 +3,7 @@ using System;
 using System.Dynamic;
 using System.Text.Json;
 
-namespace DiscordBot.Models;
+namespace DiscordBot;
 
 internal static class JsonExtension
 {

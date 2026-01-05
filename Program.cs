@@ -7,7 +7,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -22,11 +21,15 @@ internal class Program
     private readonly static Logger _logger;
 
     private static decimal _lastRate = -1;
+    private static Config _config = new();
     private static decimal _lowerBound = 6.1m;
     private static decimal _upperBound = 6.2m;
 
     static Program()
     {
+        AppDomain.CurrentDomain.ProcessExit += OnExit;
+        AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
+
         DiscordSocketConfig socketConfig = new() { GatewayIntents = GatewayIntents.All };
         _client = new DiscordSocketClient(socketConfig);
         _client.MessageReceived += MessageReceivedAsync;
@@ -34,6 +37,7 @@ internal class Program
         _client.Connected += OnConnected;
         _client.Ready += OnReady;
         _client.GuildAvailable += OnGuildAvailable;
+        _client.JoinedGuild += OnGuildJoined;
         _client.Disconnected += OnDisconnected;
 
         _greetedGuilds = [];
@@ -45,28 +49,37 @@ internal class Program
             new FileWriter());
     }
 
+    private static async Task OnGuildJoined(SocketGuild guild)
+    {
+        throw new NotImplementedException();
+    }
+
     static void Main(string[] args)
     {
-        AppDomain.CurrentDomain.ProcessExit += OnExit;
-        AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
+        {
+            FileInfo configFileInfo = new("./Config.json");
+            if (configFileInfo.Exists)
+            {
+                using FileStream stream = configFileInfo.OpenRead();
+                byte[] buffer = new byte[stream.Length];
+                int position = 0;
+                while (position < buffer.Length)
+                    position += stream.Read(buffer, position, buffer.Length);
+                string json = Encoding.UTF8.GetString(buffer);
+                Config? config = JsonSerializer.Deserialize<Config>(json, new JsonSerializerOptions() { IncludeFields = true });
+                _config = config ?? _config;
+            }
+        }
 
         _logger.Log(LogSeverity.Info, $"(App | Initialization): Initializing config.");
         string token;
         if (args.Length == 0)
         {
-            FileInfo configFileInfo = new("./config.json");
+            FileInfo configFileInfo = new("./discordbot.token");
             if (configFileInfo.Exists)
             {
                 using StreamReader file = new(configFileInfo.OpenRead());
-                string configJson = file.ReadToEnd();
-                JsonSerializerOptions jsonOptions = new(JsonSerializerOptions.Default) { IncludeFields = true };
-                Config? config = JsonSerializer.Deserialize<Config>(configJson, jsonOptions);
-                if (config == null)
-                {
-                    _logger.Log(LogSeverity.Critical, $"(App | Initialization): Could not deserialize config.json:\n{configFileInfo}");
-                    return;
-                }
-                token = config.Token;
+                token = file.ReadToEnd();
             }
             else
             {
@@ -84,64 +97,7 @@ internal class Program
         task = _client.StartAsync();
         task.Wait();
 
-        const string URL = "https://wise.com/gateway/v3/quotes";
-        const string CONTENT = @"{""sourceAmount"":1000,""sourceCurrency"":""EUR"",""targetCurrency"":""BRL"",""guaranteedTargetAmount"":false,""type"":""REGULAR""}";
-
-        HttpClient httpClient = new();
-        StringContent content = new(CONTENT, Encoding.UTF8, "application/json");
-
-        while (true)
-        {
-            if (_client.Guilds.Count > 0)
-            {
-                Task<HttpResponseMessage> post = httpClient.PostAsync(URL, content);
-                post.Wait();
-
-                Task<string> postContent = post.Result.Content.ReadAsStringAsync();
-                postContent.Wait();
-
-                JsonDocument jsonDocument = JsonDocument.Parse(postContent.Result);
-                if (jsonDocument == null)
-                {
-                    _logger.Log(LogSeverity.Error, $"(App | WiseRequest): Could not deserialize\n{postContent.Result}");
-                    continue;
-                }
-
-                dynamic jsonObject = jsonDocument.ToExpandoObject();
-
-                _lastRate = (decimal)jsonObject.rate;
-
-                string? message = null;
-                if (_lastRate <= _lowerBound)
-                    message =
-                        $"""
-                        Lower bound reached:
-                            {1:n2}€ = {(decimal)jsonObject.rate:n5}R$
-                        """;
-                else if (_lastRate >= _upperBound)
-                    message =
-                        $"""
-                        Upper bound reached:
-                            {1:n2}€ = {(decimal)jsonObject.rate:n5}R$
-                        """;
-
-                if (message != null)
-                {
-                    Task[] tasks = new Task[_client.Guilds.Count];
-                    int count = 0;
-                    foreach (SocketGuild guild in _client.Guilds)
-                    {
-                        tasks[count] = MessageGuild(guild, message);
-                        count++;
-                    }
-                    Task.WaitAll(tasks);
-                }
-
-                Thread.Sleep(300_000);
-            }
-            else
-                Thread.Sleep(1_000);
-        }
+        Task.Delay(Timeout.Infinite).Wait();
     }
 
     private static void OnUnhandledException(object sender, UnhandledExceptionEventArgs e)
@@ -180,7 +136,6 @@ internal class Program
     private static async Task OnGuildAvailable(SocketGuild guild)
     {
         await Task.Run(() => _logger.Log(LogSeverity.Info, $"(App | Connection): Guild ({guild.Name}) connected."));
-
         string msg =
             $"""
             I am awake.
@@ -219,6 +174,104 @@ internal class Program
     private static async Task OnReady()
     {
         await Task.Run(() => _logger.Log(LogSeverity.Info, $"(App | Bot): Bot ({_client.CurrentUser.Username}) ready. {LogBot()}"));
+        Task.Run(Loop);
+    }
+
+    private static void Loop()
+    {
+        WiseClient client = new();
+        while (true)
+        {
+            if (_client.Guilds.Count > 0)
+            {
+                Task<string> result = client.Request();
+                result.Wait();
+
+                JsonDocument jsonDocument = JsonDocument.Parse(result.Result);
+                if (jsonDocument == null)
+                {
+                    _logger.Log(LogSeverity.Error, $"(App | WiseRequest): Could not deserialize\n{result.Result}");
+                    continue;
+                }
+
+                dynamic jsonObject = jsonDocument.ToExpandoObject();
+
+                //_client.GetGuild();
+                decimal rate = (decimal)jsonObject.rate;
+
+                if (rate != _lastRate)
+                {
+                    _lastRate = rate;
+                    BroadcastRate();
+                }
+            }
+
+            DateTime now = DateTime.Now;
+
+            const int MINUTES = 5;
+            int hour = now.Hour;
+            int minute = now.Minute;
+            minute /= MINUTES;
+            minute++;
+            minute *= MINUTES;
+
+            hour += minute / 60;
+            minute %= 60;
+
+            DateTime next = new(now.Year, now.Month, now.Day, hour, minute, 0);
+
+            TimeSpan span = next - DateTime.Now;
+            if (span.TotalMinutes < 0.5d)
+                span = TimeSpan.FromMinutes(0.5d);
+
+            Thread.Sleep(span);
+        }
+    }
+
+    private static void BroadcastRate()
+    {
+        Task[] tasks = new Task[_client.Guilds.Count];
+        int count = 0;
+        foreach (SocketGuild guild in _client.Guilds)
+        {
+            if (!_config.Channels.TryGetValue(guild.Id, out Models.Range? range))
+            {
+                range = new(decimal.MinValue, decimal.MaxValue);
+                _config.Channels.Add(guild.Id, range);
+            }
+
+            if (!guild.IsConnected)
+                continue;
+
+            string? message = null;
+            switch (range.Comparer(_lastRate))
+            {
+                case < 0:
+                    message = $"""
+                        Lower bound reached:
+                            {1:n2}€ = {_lastRate:n5}R$
+                        """;
+
+                    break;
+                case > 0:
+                    message = $"""
+                        Upper bound reached:
+                            {1:n2}€ = {_lastRate:n5}R$
+                        """;
+                    break;
+                default:
+                    continue;
+            }
+
+            tasks[count] = MessageGuild(guild, message);
+            count++;
+        }
+
+        if (count > 0)
+        {
+            Array.Resize(ref tasks, count);
+            Task.WaitAll(tasks);
+        }
     }
 
     private static async Task MessageReceivedAsync(SocketMessage message)
@@ -232,12 +285,78 @@ internal class Program
 
         string content = message.Content;
         string response;
-        if (content == CMD_UPDATE)
+        if (content.Equals(CMD_UPDATE, StringComparison.CurrentCultureIgnoreCase))
         {
             if (_lastRate < 0)
                 response = "Rate not updated yet.";
             else
                 response = $"{1:n2}€ = {_lastRate:n5}R$";
+        }
+        else if (content.StartsWith("min:"))
+        {
+            content = content["min:".Length..];
+            if (!decimal.TryParse(content, out decimal value))
+                response = $"Could not parse value: [{content}]";
+            else
+            {
+                if (message.Channel is not SocketGuildChannel guildChannel)
+                {
+                    _logger.Log(LogSeverity.Error, $"Channel type not expected: {message.Channel.Id} | {message.Channel.Name} | {message.Channel.GetType()}");
+                    response = $"Failed";
+                }
+                else
+                {
+                    SocketGuild guild = guildChannel.Guild;
+                    if (!_config.Channels.TryGetValue(guild.Id, out Models.Range? range))
+                    {
+                        range = new(value, decimal.MaxValue);
+                        _config.Channels.Add(guild.Id, range);
+                    }
+                    else
+                        range.Minimum = value;
+                    response = $" - Lower bound: {value:n2}";
+
+                    string json = JsonSerializer.Serialize(_config, new JsonSerializerOptions() { IncludeFields = true, WriteIndented = true });
+                    byte[] buffer = Encoding.Default.GetBytes(json);
+                    FileInfo configFileInfo = new("./Config.json");
+                    using FileStream stream = configFileInfo.OpenWrite();
+                    stream.Write(buffer);
+                    stream.SetLength(buffer.Length);
+                }
+            }
+        }
+        else if (content.StartsWith("max:"))
+        {
+            content = content["max:".Length..];
+            if (!decimal.TryParse(content, out decimal value))
+                response = $"Could not parse value: [{content}]";
+            else
+            {
+                if (message.Channel is not SocketGuildChannel guildChannel)
+                {
+                    _logger.Log(LogSeverity.Error, $"Channel type not expected: {message.Channel.Id} | {message.Channel.Name} | {message.Channel.GetType()}");
+                    response = $"Failed";
+                }
+                else
+                {
+                    SocketGuild guild = guildChannel.Guild;
+                    if (!_config.Channels.TryGetValue(guild.Id, out Models.Range? range))
+                    {
+                        range = new(decimal.MinValue, value);
+                        _config.Channels.Add(guild.Id, range);
+                    }
+                    else
+                        range.Maximum = value;
+                    response = $" - Upper bound: {value:n2}";
+
+                    string json = JsonSerializer.Serialize(_config, new JsonSerializerOptions() { IncludeFields = true, WriteIndented = true });
+                    byte[] buffer = Encoding.Default.GetBytes(json);
+                    FileInfo configFileInfo = new("./Config.json");
+                    using FileStream stream = configFileInfo.OpenWrite();
+                    stream.Write(buffer);
+                    stream.SetLength(buffer.Length);
+                }
+            }
         }
         else
         {

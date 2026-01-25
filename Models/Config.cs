@@ -20,24 +20,25 @@ public class Config(Dictionary<ulong, Range>? channels)
     {
         public override Config Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
-            //JsonObject.Parse(ref reader,)
-
-            // Deserialize into the raw shape
             Dictionary<ulong, Range> dictionary = [];
-            JsonNode raw = JsonSerializer.Deserialize<JsonNode>(ref reader, options);
-            foreach (KeyValuePair<string, JsonNode?> node in raw["channels"].AsObject())
+            JsonNode? raw = JsonSerializer.Deserialize<JsonNode>(ref reader, options);
+            if (raw != null)
             {
-                ulong key = ulong.Parse(node.Key);
-                Range value;
-                if (node.Value == null)
-                    value = new Range(decimal.MinValue, decimal.MaxValue);
-                else
+                JsonObject array = raw.AsObject();
+                foreach (KeyValuePair<string, JsonNode?> item in array)
                 {
-                    decimal min = node.Value["min"].Deserialize<decimal>();
-                    decimal max = node.Value["max"].Deserialize<decimal>();
-                    value = new Range(min, max);
+                    ulong key = ulong.Parse(item.Key);
+                    Range value;
+                    if (item.Value == null)
+                        value = new Range(decimal.MinValue, decimal.MaxValue);
+                    else
+                    {
+                        decimal min = item.Value["min"].Deserialize<decimal>();
+                        decimal max = item.Value["max"].Deserialize<decimal>();
+                        value = new Range(min, max);
+                    }
+                    dictionary.Add(key, value);
                 }
-                dictionary.Add(key, value);
             }
 
             return new(dictionary);
@@ -60,6 +61,6 @@ public class Range(decimal min, decimal max)
     [JsonPropertyName("max"), JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public decimal Maximum = max;
 
-    internal bool Contains(decimal value) => Comparer(value) == 0;
-    internal int Comparer(decimal value) => value < Minimum ? -1 : value > Maximum ? 1 : 0;
+    internal bool Contains(decimal value) => Compare(value) == 0;
+    internal int Compare(decimal value) => value < Minimum ? -1 : value > Maximum ? 1 : 0;
 }

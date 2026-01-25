@@ -7,7 +7,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -16,29 +15,41 @@ namespace DiscordBot;
 
 internal class Program
 {
+    private const string CHANNEL_NAME = "bot-cambio";
+
+    private static Task? _loop;
+
+    private readonly static List<SocketTextChannel> _socketTextChannels = [];
+
     private readonly static DiscordSocketClient _client;
     private readonly static HashSet<ulong> _greetedGuilds;
     private readonly static Logger _logger;
+    private readonly static JsonHandler _jsonHandler;
 
     private static decimal _lastRate = -1;
     private static Config _config = new();
-    private static decimal _lowerBound = 6.1m;
-    private static decimal _upperBound = 6.2m;
+
 
     static Program()
     {
+        _jsonHandler = new JsonHandler();
+
         AppDomain.CurrentDomain.ProcessExit += OnExit;
         AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
 
         DiscordSocketConfig socketConfig = new() { GatewayIntents = GatewayIntents.All };
         _client = new DiscordSocketClient(socketConfig);
+        _client.Ready += OnReady;
         _client.MessageReceived += MessageReceivedAsync;
         _client.Log += DiscordLog;
         _client.Connected += OnConnected;
-        _client.Ready += OnReady;
-        _client.GuildAvailable += OnGuildAvailable;
-        _client.JoinedGuild += OnGuildJoined;
         _client.Disconnected += OnDisconnected;
+        _client.GuildAvailable += OnGuildAvailable;
+        //_client.GuildUnavailable
+        //_client.JoinedGuild += OnGuildJoined;
+        //_client.ChannelCreated
+        //_client.ChannelUpdated
+        //_client.ChannelDestroyed
 
         _greetedGuilds = [];
 
@@ -49,27 +60,9 @@ internal class Program
             new FileWriter());
     }
 
-    private static async Task OnGuildJoined(SocketGuild guild)
-    {
-        throw new NotImplementedException();
-    }
-
     static void Main(string[] args)
     {
-        {
-            FileInfo configFileInfo = new("./Config.json");
-            if (configFileInfo.Exists)
-            {
-                using FileStream stream = configFileInfo.OpenRead();
-                byte[] buffer = new byte[stream.Length];
-                int position = 0;
-                while (position < buffer.Length)
-                    position += stream.Read(buffer, position, buffer.Length);
-                string json = Encoding.UTF8.GetString(buffer);
-                Config? config = JsonSerializer.Deserialize<Config>(json, new JsonSerializerOptions() { IncludeFields = true });
-                _config = config ?? _config;
-            }
-        }
+        _config = _jsonHandler.ReadConfigFile() ?? _config;
 
         _logger.Log(LogSeverity.Info, $"(App | Initialization): Initializing config.");
         string token;
@@ -136,6 +129,12 @@ internal class Program
     private static async Task OnGuildAvailable(SocketGuild guild)
     {
         await Task.Run(() => _logger.Log(LogSeverity.Info, $"(App | Connection): Guild ({guild.Name}) connected."));
+        if (!_config.Channels.TryGetValue(guild.Id, out Models.Range? channel))
+        {
+            channel = new(6.1m, 6.2m);
+            _config.Channels.Add(guild.Id, channel);
+        }
+
         string msg =
             $"""
             I am awake.
@@ -145,36 +144,40 @@ internal class Program
             - AppContext: {AppContext.BaseDirectory}
             
                 Configuration:
-                 - Lower bound: {_lowerBound:n2}
-            - Upper bound: {_upperBound:n2}
+                 - Lower bound: {channel.Minimum:n2}
+            - Upper bound: {channel.Maximum:n2}
             """;
+
         if (_greetedGuilds.Add(guild.Id))
             await MessageGuild(guild, msg);
+
+        _jsonHandler.WriteConfigToFile(_config);
     }
 
-    private static async Task MessageGuild(SocketGuild guild, string message)
+    private static Task MessageGuild(SocketGuild guild, string message)
     {
-        if (guild.DefaultChannel.GetChannelType() == ChannelType.Text)
-            guild.DefaultChannel.SendMessageAsync(message).Wait();
-        else if (guild.TextChannels.Count > 0)
+        SocketTextChannel[] channels = [.. guild.TextChannels.Where(t => t.Name == CHANNEL_NAME)];
+
+        if (channels.Length == 0)
+            return Task.Run(() => _logger.Log(LogSeverity.Warning, $"(App | SendMessage): {guild.Name}({guild.Id}) has no \"{CHANNEL_NAME}\" channel"));
+        else
         {
-            using IEnumerator<SocketTextChannel> textChannels = guild.TextChannels.OrderBy(c => c.CreatedAt).GetEnumerator();
-            while (textChannels.MoveNext())
-            {
-                if (textChannels.Current.GetChannelType() == ChannelType.Text)
-                {
-                    await textChannels.Current.SendMessageAsync(message)
-                        .ContinueWith(m => _logger.Log(LogSeverity.Info, $"(App | SendMessage): {m.Status} Message sent: {m.Result.Content}"));
-                    break;
-                }
-            }
+            Task[] tasks = new Task[channels.Length];
+            for (int i = 0; i < channels.Length; i++)
+                tasks[i] = channels[i].SendMessageAsync(message).ContinueWith(OnContinueWith);
+            return Task.Run(() => Task.WaitAll(tasks));
+        }
+
+        static void OnContinueWith(Task<RestUserMessage> task)
+        {
+            _logger.Log(LogSeverity.Info, $"(App | SendMessage): {task.Status} Message sent: {task.Result.Content}");
         }
     }
 
     private static async Task OnReady()
     {
         await Task.Run(() => _logger.Log(LogSeverity.Info, $"(App | Bot): Bot ({_client.CurrentUser.Username}) ready. {LogBot()}"));
-        Task.Run(Loop);
+        _loop = Task.Run(Loop);
     }
 
     private static void Loop()
@@ -244,7 +247,7 @@ internal class Program
                 continue;
 
             string? message = null;
-            switch (range.Comparer(_lastRate))
+            switch (range.Compare(_lastRate))
             {
                 case < 0:
                     message = $"""
@@ -316,12 +319,7 @@ internal class Program
                         range.Minimum = value;
                     response = $" - Lower bound: {value:n2}";
 
-                    string json = JsonSerializer.Serialize(_config, new JsonSerializerOptions() { IncludeFields = true, WriteIndented = true });
-                    byte[] buffer = Encoding.Default.GetBytes(json);
-                    FileInfo configFileInfo = new("./Config.json");
-                    using FileStream stream = configFileInfo.OpenWrite();
-                    stream.Write(buffer);
-                    stream.SetLength(buffer.Length);
+                    _jsonHandler.WriteConfigToFile(_config);
                 }
             }
         }
@@ -349,12 +347,7 @@ internal class Program
                         range.Maximum = value;
                     response = $" - Upper bound: {value:n2}";
 
-                    string json = JsonSerializer.Serialize(_config, new JsonSerializerOptions() { IncludeFields = true, WriteIndented = true });
-                    byte[] buffer = Encoding.Default.GetBytes(json);
-                    FileInfo configFileInfo = new("./Config.json");
-                    using FileStream stream = configFileInfo.OpenWrite();
-                    stream.Write(buffer);
-                    stream.SetLength(buffer.Length);
+                    _jsonHandler.WriteConfigToFile(_config);
                 }
             }
         }
@@ -393,6 +386,6 @@ internal class Program
                 StackTrace: {logMessage.Exception.StackTrace}
                 """;
 
-        await Task.Run(() => _logger.Log(logMessage.Severity, message));
+        _logger.Log(logMessage.Severity, message);
     }
 }

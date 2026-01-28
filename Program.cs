@@ -5,6 +5,7 @@ using DiscordBot.Log;
 using DiscordBot.Models;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -114,6 +115,7 @@ internal class Program
             Task.WaitAll(tasks);
         }
         _logger.Log(LogSeverity.Info, "(App | OnExit): Exited");
+        _logger.Dispose();
     }
 
     private static async Task OnConnected()

@@ -12,11 +12,6 @@ internal class FileWriter : ILogWriter
     private const int MAX_FILES = 20; //1MB
     private Stream? _stream;
 
-    internal FileWriter()
-    {
-        AppDomain.CurrentDomain.ProcessExit += Dispose;
-    }
-
     public void Write(Logger.Message logMessage)
     {
         string message = $"{logMessage}\n";
@@ -46,6 +41,7 @@ internal class FileWriter : ILogWriter
         }
 
         _stream.Write(buffer, 0, buffer.Length);
+        _stream.Flush();
     }
 
     [MemberNotNull(nameof(_stream))]
@@ -55,26 +51,19 @@ internal class FileWriter : ILogWriter
         DirectoryInfo directory = fileInfo.Directory!;
 
         Directory.CreateDirectory(directory!.FullName);
-        _stream = fileInfo.Create();
+        _stream = File.Open(fileInfo.FullName, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
 
         FileInfo[] files = [.. directory.EnumerateFiles().OrderByDescending(f => f.LastWriteTime)];
         for (int i = MAX_FILES; i < files.Length; i++)
             files[i].Delete();
     }
 
-    private void Dispose(object? sender, EventArgs e)
+    public void Dispose()
     {
-        AppDomain.CurrentDomain.ProcessExit -= Dispose;
-
         if (_stream != null)
         {
             _stream.Flush();
             _stream.Dispose();
         }
-    }
-
-    ~FileWriter()
-    {
-        Dispose(this, EventArgs.Empty);
     }
 }

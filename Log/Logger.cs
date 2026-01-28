@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 
 namespace DiscordBot.Log;
 
-public class Logger
+public class Logger : IDisposable
 {
     private readonly LogSeverity _severity;
     private readonly Queue<Message> _messageQueue;
@@ -66,6 +66,17 @@ public class Logger
                 Log(LogSeverity.Error, $"Exception: {exception.Message}\n{exception.StackTrace}");
             }
         }
+    }
+
+    public void Dispose()
+    {
+        _logTask?.Wait();
+        _logTask?.Dispose();
+
+        Task[] tasks = new Task[_writers.Length];
+        for (int i = 0; i < tasks.Length; i++)
+            tasks[i] = Task.Run(_writers[i].Dispose);
+        Task.WaitAll(tasks);
     }
 
     public record Message(DateTime Timestamp, LogSeverity Severity, string LogMessage)

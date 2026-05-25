@@ -3,6 +3,7 @@ using Discord.Rest;
 using Discord.WebSocket;
 using discordbot.log;
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace discordbot.services;
@@ -18,8 +19,9 @@ internal sealed class DiscordCommandHandler : ICommandHandler
         _configStore = configStore;
     }
 
-    public async Task HandleAsync(SocketMessage message, decimal lastRate)
+    public async Task HandleAsync(SocketMessage message, decimal lastRate, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         const string cmdUpdate = "update";
 
         if (message.Author.IsBot || message.Channel is not SocketTextChannel channel)

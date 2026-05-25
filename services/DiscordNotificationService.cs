@@ -4,6 +4,7 @@ using discordbot.log;
 using discordbot.models;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace discordbot.services;
@@ -22,8 +23,9 @@ internal sealed class DiscordNotificationService : INotificationService
     }
 
 
-    public async Task NotifyGuildAsync(SocketGuild guild, string message)
+    public async Task NotifyGuildAsync(SocketGuild guild, string message, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         SocketTextChannel[] channels = [.. guild.TextChannels.Where(t => t.Name == _channelName)];
         if (channels.Length == 0)
         {
@@ -33,13 +35,14 @@ internal sealed class DiscordNotificationService : INotificationService
 
         List<Task> tasks = new List<Task>(channels.Length);
         for (int i = 0; i < channels.Length; i++)
-            tasks.Add(SendAndLogAsync(channels[i], message));
+            tasks.Add(SendAndLogAsync(channels[i], message, cancellationToken));
 
         await Task.WhenAll(tasks);
     }
 
-    public async Task NotifyRateAsync(IReadOnlyCollection<SocketGuild> guilds, decimal rate)
+    public async Task NotifyRateAsync(IReadOnlyCollection<SocketGuild> guilds, decimal rate, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         List<Task> tasks = new(guilds.Count);
 
         foreach (SocketGuild guild in guilds)
@@ -58,7 +61,7 @@ internal sealed class DiscordNotificationService : INotificationService
             if (message == null)
                 continue;
 
-            tasks.Add(NotifyGuildAsync(guild, message));
+            tasks.Add(NotifyGuildAsync(guild, message, cancellationToken));
         }
 
         if (tasks.Count == 0)
@@ -67,8 +70,9 @@ internal sealed class DiscordNotificationService : INotificationService
         await Task.WhenAll(tasks);
     }
 
-    private async Task SendAndLogAsync(SocketTextChannel channel, string message)
+    private async Task SendAndLogAsync(SocketTextChannel channel, string message, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         IUserMessage sent = await channel.SendMessageAsync(message);
         _logger.Log(LogSeverity.Info, $"(App | SendMessage): {TaskStatus.RanToCompletion} Message sent: {sent.Content}");
     }

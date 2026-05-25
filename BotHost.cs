@@ -71,7 +71,7 @@ internal sealed class BotHost : IAsyncDisposable
         if (_client.ConnectionState == ConnectionState.Connected)
         {
             const string message = "I am going to sleep.";
-            await NotifyAllGuildsAsync(message);
+            await NotifyAllGuildsAsync(message, CancellationToken.None);
         }
 
         if (_rateLoopTask != null)
@@ -104,20 +104,17 @@ internal sealed class BotHost : IAsyncDisposable
     {
         _logger.Log(LogSeverity.Info, $"(App | Bot): Bot ({_client.CurrentUser.Username}) ready. {LogBot()}");
         _rateLoopTask ??= RunRateLoopAsync();
-        await Task.CompletedTask;
     }
 
-    private Task OnConnected()
+    private async Task OnConnected()
     {
         _logger.Log(LogSeverity.Info, $"(App | Connection): Bot ({_client.CurrentUser.Username}) connected. {LogBot()}");
-        return Task.CompletedTask;
     }
 
-    private Task OnDisconnected(Exception exception)
+    private async Task OnDisconnected(Exception exception)
     {
         string username = _client.CurrentUser?.Username ?? "unknown";
         _logger.Log(LogSeverity.Info, $"(App | Connection): Bot ({username}) disconnected. {LogBot()}");
-        return Task.CompletedTask;
     }
 
     private async Task OnGuildAvailable(SocketGuild guild)
@@ -140,60 +137,64 @@ internal sealed class BotHost : IAsyncDisposable
 
         if (_greetedGuilds.Add(guild.Id))
         {
-            await _notificationService.NotifyGuildAsync(guild, msg);
+            await _notificationService.NotifyGuildAsync(guild, msg, _rateLoopCts.Token);
         }
 
         _configStore.Save();
     }
 
-    private Task OnMessageReceivedAsync(SocketMessage message) => _commandHandler.HandleAsync(message, _lastRate);
+    private Task OnMessageReceivedAsync(SocketMessage message) => _commandHandler.HandleAsync(message, _lastRate, _rateLoopCts.Token);
 
-    private Task OnDiscordLog(LogMessage logMessage)
+    private async Task OnDiscordLog(LogMessage logMessage)
     {
         string message = logMessage.Exception == null
             ? $"(Discord | {logMessage.Source}): {logMessage.Message}"
             : $"(Discord | {logMessage.Source}: {logMessage.Message}\nException: {logMessage.Exception.Message}\nStackTrace: {logMessage.Exception.StackTrace}";
 
         _logger.Log(logMessage.Severity, message);
-        return Task.CompletedTask;
     }
 
     private async Task RunRateLoopAsync()
     {
-        while (!_rateLoopCts.Token.IsCancellationRequested)
+        try
         {
-            try
+            CancellationToken token = _rateLoopCts.Token;
+            TimeSpan initialDelay = GetDelayUntilNextTick();
+            if (initialDelay > TimeSpan.Zero)
+                await Task.Delay(initialDelay, token);
+
+            using PeriodicTimer timer = new(TimeSpan.FromMinutes(5));
+            while (await timer.WaitForNextTickAsync(token))
             {
-                if (_client.Guilds.Count > 0)
+                try
                 {
-                    decimal rate = await _rateProvider.GetRateAsync();
-                    if (rate != _lastRate)
+                    if (_client.Guilds.Count > 0)
                     {
-                        _lastRate = rate;
-                        await _notificationService.NotifyRateAsync(_client.Guilds, _lastRate);
+                        decimal rate = await _rateProvider.GetRateAsync();
+                        if (rate != _lastRate)
+                        {
+                            _lastRate = rate;
+                            await _notificationService.NotifyRateAsync(_client.Guilds, _lastRate, token);
+                        }
                     }
                 }
-
-                await Task.Delay(GetDelayUntilNextTick(), _rateLoopCts.Token);
+                catch (Exception exception)
+                {
+                    _logger.Log(LogSeverity.Error, $"(App | Loop): {exception.Message}");
+                }
             }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-            catch (Exception exception)
-            {
-                _logger.Log(LogSeverity.Error, $"(App | Loop): {exception.Message}");
-                await Task.Delay(TimeSpan.FromMinutes(1), _rateLoopCts.Token);
-            }
+        }
+        catch (OperationCanceledException)
+        {
         }
     }
 
-    private async Task NotifyAllGuildsAsync(string message)
+    private async Task NotifyAllGuildsAsync(string message, CancellationToken cancellationToken)
     {
         List<Task> tasks = [];
         foreach (SocketGuild guild in _client.Guilds)
         {
-            tasks.Add(_notificationService.NotifyGuildAsync(guild, message));
+            tasks.Add(_notificationService.NotifyGuildAsync(guild, message, cancellationToken));
         }
         await Task.WhenAll(tasks);
     }
@@ -208,9 +209,7 @@ internal sealed class BotHost : IAsyncDisposable
 
         TimeSpan span = next - DateTime.Now;
         if (span.TotalMinutes < 0.5d)
-        {
             span = TimeSpan.FromMinutes(0.5d);
-        }
 
         return span;
     }

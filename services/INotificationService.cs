@@ -7,5 +7,5 @@ namespace discordbot.services;
 internal interface INotificationService
 {
     Task NotifyGuildAsync(SocketGuild guild, string message);
-    Task NotifyRateAsync(IEnumerable<SocketGuild> guilds, decimal rate);
+    Task NotifyRateAsync(IReadOnlyCollection<SocketGuild> guilds, decimal rate);
 }

@@ -18,7 +18,9 @@ internal struct WiseClient
         _content = new(CONTENT, Encoding.UTF8, "application/json");
     }
 
-    internal readonly Task<string> Request() => _client.PostAsync(URL, _content).ContinueWith(ReadContent);
-
-    private static string ReadContent(Task<HttpResponseMessage> post) => post.Result.Content.ReadAsStringAsync().Result;
+    internal readonly async Task<string> Request()
+    {
+        using HttpResponseMessage response = await _client.PostAsync(URL, _content);
+        return await response.Content.ReadAsStringAsync();
+    }
 }

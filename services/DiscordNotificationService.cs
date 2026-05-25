@@ -1,5 +1,4 @@
 using Discord;
-using Discord.Rest;
 using Discord.WebSocket;
 using discordbot.log;
 using discordbot.models;
@@ -23,39 +22,30 @@ internal sealed class DiscordNotificationService : INotificationService
     }
 
 
-    public Task NotifyGuildAsync(SocketGuild guild, string message)
+    public async Task NotifyGuildAsync(SocketGuild guild, string message)
     {
         SocketTextChannel[] channels = [.. guild.TextChannels.Where(t => t.Name == _channelName)];
         if (channels.Length == 0)
         {
-            return Task.Run(() => _logger.Log(LogSeverity.Warning, $"(App | SendMessage): {guild.Name}({guild.Id}) has no \"{_channelName}\" channel"));
+            _logger.Log(LogSeverity.Warning, $"(App | SendMessage): {guild.Name}({guild.Id}) has no \"{_channelName}\" channel");
+            return;
         }
 
-        Task[] tasks = new Task[channels.Length];
+        List<Task> tasks = new List<Task>(channels.Length);
         for (int i = 0; i < channels.Length; i++)
-        {
-            tasks[i] = channels[i].SendMessageAsync(message).ContinueWith(OnContinueWith);
-        }
+            tasks.Add(SendAndLogAsync(channels[i], message));
 
-        return Task.Run(() => Task.WaitAll(tasks));
-
-        void OnContinueWith(Task<RestUserMessage> task)
-        {
-            _logger.Log(LogSeverity.Info, $"(App | SendMessage): {task.Status} Message sent: {task.Result.Content}");
-        }
+        await Task.WhenAll(tasks);
     }
 
-    public Task NotifyRateAsync(IEnumerable<SocketGuild> guilds, decimal rate)
+    public async Task NotifyRateAsync(IReadOnlyCollection<SocketGuild> guilds, decimal rate)
     {
-        Task[] tasks = new Task[guilds.Count()];
-        int count = 0;
+        List<Task> tasks = new(guilds.Count);
 
         foreach (SocketGuild guild in guilds)
         {
             if (!guild.IsConnected)
-            {
                 continue;
-            }
 
             Range range = _configStore.GetOrCreateRange(guild.Id, decimal.MinValue, decimal.MaxValue);
             string? message = range.Compare(rate) switch
@@ -66,24 +56,20 @@ internal sealed class DiscordNotificationService : INotificationService
             };
 
             if (message == null)
-            {
                 continue;
-            }
 
-            tasks[count] = NotifyGuildAsync(guild, message);
-            count++;
+            tasks.Add(NotifyGuildAsync(guild, message));
         }
 
-        if (count == 0)
-        {
-            return Task.CompletedTask;
-        }
+        if (tasks.Count == 0)
+            return;
 
-        if (count < tasks.Length)
-        {
-            System.Array.Resize(ref tasks, count);
-        }
+        await Task.WhenAll(tasks);
+    }
 
-        return Task.Run(() => Task.WaitAll(tasks));
+    private async Task SendAndLogAsync(SocketTextChannel channel, string message)
+    {
+        IUserMessage sent = await channel.SendMessageAsync(message);
+        _logger.Log(LogSeverity.Info, $"(App | SendMessage): {TaskStatus.RanToCompletion} Message sent: {sent.Content}");
     }
 }

@@ -11,13 +11,11 @@ namespace discordbot.services;
 
 internal sealed class DiscordNotificationService : INotificationService
 {
-    private readonly string _channelName;
     private readonly Logger _logger;
     private readonly IConfigStore _configStore;
 
-    public DiscordNotificationService(string channelName, Logger logger, IConfigStore configStore)
+    public DiscordNotificationService(Logger logger, IConfigStore configStore)
     {
-        _channelName = channelName;
         _logger = logger;
         _configStore = configStore;
     }
@@ -26,10 +24,11 @@ internal sealed class DiscordNotificationService : INotificationService
     public async Task NotifyGuildAsync(SocketGuild guild, string message, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        SocketTextChannel[] channels = [.. guild.TextChannels.Where(t => t.Name == _channelName)];
+        string channelName = _configStore.ChannelName;
+        SocketTextChannel[] channels = [.. guild.TextChannels.Where(t => t.Name == channelName)];
         if (channels.Length == 0)
         {
-            _logger.Log(LogSeverity.Warning, $"(App | SendMessage): {guild.Name}({guild.Id}) has no \"{_channelName}\" channel");
+            _logger.Log(LogSeverity.Warning, $"(App | SendMessage): {guild.Name}({guild.Id}) has no \"{channelName}\" channel");
             return;
         }
 

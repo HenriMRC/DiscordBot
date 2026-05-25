@@ -1,7 +1,6 @@
 using Discord;
 using Discord.WebSocket;
 using discordbot.log;
-using discordbot.models;
 using discordbot.services;
 using System;
 using System.Collections.Generic;
@@ -11,7 +10,7 @@ using Range = discordbot.models.Range;
 
 namespace discordbot;
 
-internal sealed class BotHost : IAsyncDisposable
+internal sealed class BotHost
 {
     private readonly DiscordSocketClient _client;
     private readonly Logger _logger;
@@ -77,8 +76,8 @@ internal sealed class BotHost : IAsyncDisposable
         {
             try
             {
-            _rateLoopCts.Cancel();
-            await _rateLoopTask;
+                _rateLoopCts.Cancel();
+                await _rateLoopTask;
             }
             catch (Exception exception)
             {
@@ -90,13 +89,6 @@ internal sealed class BotHost : IAsyncDisposable
         await _client.LogoutAsync();
 
         _logger.Log(LogSeverity.Info, "(App | OnExit): Exited");
-        _logger.Dispose();
-    }
-
-    public ValueTask DisposeAsync()
-    {
-        _client.Dispose();
-        return ValueTask.CompletedTask;
     }
 
     private async Task OnReady()

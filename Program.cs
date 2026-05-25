@@ -1,39 +1,34 @@
-﻿using Discord;
-using Discord.Rest;
+using Discord;
 using Discord.WebSocket;
 using discordbot.log;
 using discordbot.models;
+using discordbot.services;
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Range = discordbot.models.Range;
 
 namespace discordbot;
 
 internal class Program
 {
     private const string CHANNEL_NAME = "bot-cambio";
-
     private static Task? _loop;
-
-    private readonly static List<SocketTextChannel> _socketTextChannels = [];
 
     private readonly static DiscordSocketClient _client;
     private readonly static HashSet<ulong> _greetedGuilds;
     private readonly static Logger _logger;
-    private readonly static JsonHandler _jsonHandler;
+    private readonly static IConfigStore _configStore;
+    private readonly static IRateProvider _rateProvider;
+    private readonly static INotificationService _notificationService;
+    private readonly static ICommandHandler _commandHandler;
 
     private static decimal _lastRate = -1;
-    private static Config _config = new();
-
 
     static Program()
     {
-        _jsonHandler = new JsonHandler();
-
         AppDomain.CurrentDomain.ProcessExit += OnExit;
         AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
 
@@ -45,11 +40,6 @@ internal class Program
         _client.Connected += OnConnected;
         _client.Disconnected += OnDisconnected;
         _client.GuildAvailable += OnGuildAvailable;
-        //_client.GuildUnavailable
-        //_client.JoinedGuild += OnGuildJoined;
-        //_client.ChannelCreated
-        //_client.ChannelUpdated
-        //_client.ChannelDestroyed
 
         _greetedGuilds = [];
 
@@ -58,13 +48,18 @@ internal class Program
             new ConsoleWriter(),
 #endif
             new FileWriter());
+
+        _configStore = new FileConfigStore(new JsonHandler());
+        _rateProvider = new WiseRateProvider();
+        _notificationService = new DiscordNotificationService(CHANNEL_NAME, _logger, _configStore);
+        _commandHandler = new DiscordCommandHandler(_logger, _configStore);
     }
 
     static void Main(string[] args)
     {
-        _config = _jsonHandler.ReadConfigFile() ?? _config;
+        _configStore.Load();
 
-        _logger.Log(LogSeverity.Info, $"(App | Initialization): Initializing config.");
+        _logger.Log(LogSeverity.Info, "(App | Initialization): Initializing config.");
         string token;
         if (args.Length == 0)
         {
@@ -76,14 +71,16 @@ internal class Program
             }
             else
             {
-                _logger.Log(LogSeverity.Critical, $"(App | Initialization): No argument or config file.");
+                _logger.Log(LogSeverity.Critical, "(App | Initialization): No argument or config file.");
                 return;
             }
         }
         else
+        {
             token = args[0];
+        }
 
-        _logger.Log(LogSeverity.Info, $"(App | Initialization): Initializing bot.");
+        _logger.Log(LogSeverity.Info, "(App | Initialization): Initializing bot.");
 
         Task task = _client.LoginAsync(TokenType.Bot, token);
         task.Wait();
@@ -103,12 +100,12 @@ internal class Program
         _logger.Log(LogSeverity.Info, "(App | OnExit): Exiting");
         if (_client != null)
         {
-            const string MESSAGE = "I am going to sleep.";
+            const string message = "I am going to sleep.";
             Task[] tasks = new Task[_client.Guilds.Count];
             int count = 0;
             foreach (SocketGuild guild in _client.Guilds)
             {
-                tasks[count] = MessageGuild(guild, MESSAGE);
+                tasks[count] = _notificationService.NotifyGuildAsync(guild, message);
                 count++;
             }
             Task.WaitAll(tasks);
@@ -130,11 +127,7 @@ internal class Program
     private static async Task OnGuildAvailable(SocketGuild guild)
     {
         await Task.Run(() => _logger.Log(LogSeverity.Info, $"(App | Connection): Guild ({guild.Name}) connected."));
-        if (!_config.Channels.TryGetValue(guild.Id, out models.Range? channel))
-        {
-            channel = new(6.1m, 6.2m);
-            _config.Channels.Add(guild.Id, channel);
-        }
+        Range channel = _configStore.GetOrCreateRange(guild.Id, 6.1m, 6.2m);
 
         string msg =
             $"""
@@ -143,36 +136,18 @@ internal class Program
                 Variables:
                  - Environment: {Environment.CurrentDirectory}
             - AppContext: {AppContext.BaseDirectory}
-            
+
                 Configuration:
                  - Lower bound: {channel.Minimum:n2}
             - Upper bound: {channel.Maximum:n2}
             """;
 
         if (_greetedGuilds.Add(guild.Id))
-            await MessageGuild(guild, msg);
-
-        _jsonHandler.WriteConfigToFile(_config);
-    }
-
-    private static Task MessageGuild(SocketGuild guild, string message)
-    {
-        SocketTextChannel[] channels = [.. guild.TextChannels.Where(t => t.Name == CHANNEL_NAME)];
-
-        if (channels.Length == 0)
-            return Task.Run(() => _logger.Log(LogSeverity.Warning, $"(App | SendMessage): {guild.Name}({guild.Id}) has no \"{CHANNEL_NAME}\" channel"));
-        else
         {
-            Task[] tasks = new Task[channels.Length];
-            for (int i = 0; i < channels.Length; i++)
-                tasks[i] = channels[i].SendMessageAsync(message).ContinueWith(OnContinueWith);
-            return Task.Run(() => Task.WaitAll(tasks));
+            await _notificationService.NotifyGuildAsync(guild, msg);
         }
 
-        static void OnContinueWith(Task<RestUserMessage> task)
-        {
-            _logger.Log(LogSeverity.Info, $"(App | SendMessage): {task.Status} Message sent: {task.Result.Content}");
-        }
+        _configStore.Save();
     }
 
     private static async Task OnReady()
@@ -183,41 +158,30 @@ internal class Program
 
     private static void Loop()
     {
-        WiseClient client = new();
         while (true)
         {
             if (_client.Guilds.Count > 0)
             {
-                Task<string> result = client.Request();
+                Task<decimal> result = _rateProvider.GetRateAsync();
                 result.Wait();
-
-                JsonDocument jsonDocument = JsonDocument.Parse(result.Result);
-                if (jsonDocument == null)
-                {
-                    _logger.Log(LogSeverity.Error, $"(App | WiseRequest): Could not deserialize\n{result.Result}");
-                    continue;
-                }
-
-                dynamic jsonObject = jsonDocument.ToExpandoObject();
-
-                //_client.GetGuild();
-                decimal rate = (decimal)jsonObject.rate;
+                decimal rate = result.Result;
 
                 if (rate != _lastRate)
                 {
                     _lastRate = rate;
-                    BroadcastRate();
+                    Task task = _notificationService.NotifyRateAsync(_client.Guilds, _lastRate);
+                    task.Wait();
                 }
             }
 
             DateTime now = DateTime.Now;
 
-            const int MINUTES = 5;
+            const int minutes = 5;
             int hour = now.Hour;
             int minute = now.Minute;
-            minute /= MINUTES;
+            minute /= minutes;
             minute++;
-            minute *= MINUTES;
+            minute *= minutes;
 
             hour += minute / 60;
             minute %= 60;
@@ -226,145 +190,17 @@ internal class Program
 
             TimeSpan span = next - DateTime.Now;
             if (span.TotalMinutes < 0.5d)
+            {
                 span = TimeSpan.FromMinutes(0.5d);
+            }
 
             Thread.Sleep(span);
         }
     }
 
-    private static void BroadcastRate()
-    {
-        Task[] tasks = new Task[_client.Guilds.Count];
-        int count = 0;
-        foreach (SocketGuild guild in _client.Guilds)
-        {
-            if (!_config.Channels.TryGetValue(guild.Id, out models.Range? range))
-            {
-                range = new(decimal.MinValue, decimal.MaxValue);
-                _config.Channels.Add(guild.Id, range);
-            }
-
-            if (!guild.IsConnected)
-                continue;
-
-            string? message = null;
-            switch (range.Compare(_lastRate))
-            {
-                case < 0:
-                    message = $"""
-                        Lower bound reached:
-                            {1:n2}€ = {_lastRate:n5}R$
-                        """;
-
-                    break;
-                case > 0:
-                    message = $"""
-                        Upper bound reached:
-                            {1:n2}€ = {_lastRate:n5}R$
-                        """;
-                    break;
-                default:
-                    continue;
-            }
-
-            tasks[count] = MessageGuild(guild, message);
-            count++;
-        }
-
-        if (count > 0)
-        {
-            Array.Resize(ref tasks, count);
-            Task.WaitAll(tasks);
-        }
-    }
-
     private static async Task MessageReceivedAsync(SocketMessage message)
     {
-        const string CMD_UPDATE = "update";
-
-        if (message.Author.IsBot || message.Channel is not SocketTextChannel channel)
-            return;
-
-        _logger.Log(LogSeverity.Info, $"(App | MessageReceived): {message.Content}");
-
-        string content = message.Content;
-        string response;
-        if (content.Equals(CMD_UPDATE, StringComparison.CurrentCultureIgnoreCase))
-        {
-            if (_lastRate < 0)
-                response = "Rate not updated yet.";
-            else
-                response = $"{1:n2}€ = {_lastRate:n5}R$";
-        }
-        else if (content.StartsWith("min:"))
-        {
-            content = content["min:".Length..];
-            if (!decimal.TryParse(content, out decimal value))
-                response = $"Could not parse value: [{content}]";
-            else
-            {
-                if (message.Channel is not SocketGuildChannel guildChannel)
-                {
-                    _logger.Log(LogSeverity.Error, $"Channel type not expected: {message.Channel.Id} | {message.Channel.Name} | {message.Channel.GetType()}");
-                    response = $"Failed";
-                }
-                else
-                {
-                    SocketGuild guild = guildChannel.Guild;
-                    if (!_config.Channels.TryGetValue(guild.Id, out models.Range? range))
-                    {
-                        range = new(value, decimal.MaxValue);
-                        _config.Channels.Add(guild.Id, range);
-                    }
-                    else
-                        range.Minimum = value;
-                    response = $" - Lower bound: {value:n2}";
-
-                    _jsonHandler.WriteConfigToFile(_config);
-                }
-            }
-        }
-        else if (content.StartsWith("max:"))
-        {
-            content = content["max:".Length..];
-            if (!decimal.TryParse(content, out decimal value))
-                response = $"Could not parse value: [{content}]";
-            else
-            {
-                if (message.Channel is not SocketGuildChannel guildChannel)
-                {
-                    _logger.Log(LogSeverity.Error, $"Channel type not expected: {message.Channel.Id} | {message.Channel.Name} | {message.Channel.GetType()}");
-                    response = $"Failed";
-                }
-                else
-                {
-                    SocketGuild guild = guildChannel.Guild;
-                    if (!_config.Channels.TryGetValue(guild.Id, out models.Range? range))
-                    {
-                        range = new(decimal.MinValue, value);
-                        _config.Channels.Add(guild.Id, range);
-                    }
-                    else
-                        range.Maximum = value;
-                    response = $" - Upper bound: {value:n2}";
-
-                    _jsonHandler.WriteConfigToFile(_config);
-                }
-            }
-        }
-        else
-        {
-            response = $"Command unknown:\n{content}";
-        }
-
-        //Task<SocketThreadChannel> threadCreationTask = channel.CreateThreadAsync(content, message: message);
-        //await threadCreationTask;
-        //SocketThreadChannel thread = threadCreationTask.Result;
-
-        Task<RestUserMessage> sendTask = channel.SendMessageAsync(response, messageReference: new(message.Id));
-        await sendTask;
-
-        _logger.Log(LogSeverity.Info, $"(App | MessageReceived): Message sent {sendTask.Status}");
+        await _commandHandler.HandleAsync(message, _lastRate);
     }
 
     private static string LogBot()
@@ -378,14 +214,18 @@ internal class Program
     {
         string message;
         if (logMessage.Exception == null)
+        {
             message = $"(Discord | {logMessage.Source}): {logMessage.Message}";
+        }
         else
+        {
             message =
                 $"""
                 (Discord | {logMessage.Source}: {logMessage.Message}
                 Exception: {logMessage.Exception.Message}
                 StackTrace: {logMessage.Exception.StackTrace}
                 """;
+        }
 
         _logger.Log(logMessage.Severity, message);
     }

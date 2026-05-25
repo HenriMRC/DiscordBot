@@ -15,20 +15,19 @@ internal sealed class BotHost : IAsyncDisposable
 {
     private readonly DiscordSocketClient _client;
     private readonly Logger _logger;
+    private readonly AppState _state;
     private readonly IConfigStore _configStore;
     private readonly IRateProvider _rateProvider;
     private readonly INotificationService _notificationService;
     private readonly ICommandHandler _commandHandler;
-    private readonly HashSet<ulong> _greetedGuilds = [];
-
-    private decimal _lastRate = -1;
     private Task? _rateLoopTask;
     private readonly CancellationTokenSource _rateLoopCts = new();
 
-    public BotHost(DiscordSocketClient client, Logger logger, IConfigStore configStore, IRateProvider rateProvider, INotificationService notificationService, ICommandHandler commandHandler)
+    public BotHost(DiscordSocketClient client, Logger logger, AppState state, IConfigStore configStore, IRateProvider rateProvider, INotificationService notificationService, ICommandHandler commandHandler)
     {
         _client = client;
         _logger = logger;
+        _state = state;
         _configStore = configStore;
         _rateProvider = rateProvider;
         _notificationService = notificationService;
@@ -135,7 +134,7 @@ internal sealed class BotHost : IAsyncDisposable
             - Upper bound: {channel.Maximum:n2}
             """;
 
-        if (_greetedGuilds.Add(guild.Id))
+        if (_state.MarkGuildAsGreeted(guild.Id))
         {
             await _notificationService.NotifyGuildAsync(guild, msg, _rateLoopCts.Token);
         }
@@ -143,7 +142,7 @@ internal sealed class BotHost : IAsyncDisposable
         _configStore.Save();
     }
 
-    private Task OnMessageReceivedAsync(SocketMessage message) => _commandHandler.HandleAsync(message, _lastRate, _rateLoopCts.Token);
+    private Task OnMessageReceivedAsync(SocketMessage message) => _commandHandler.HandleAsync(message, _state.GetLastRate(), _rateLoopCts.Token);
 
     private async Task OnDiscordLog(LogMessage logMessage)
     {
@@ -171,10 +170,9 @@ internal sealed class BotHost : IAsyncDisposable
                     if (_client.Guilds.Count > 0)
                     {
                         decimal rate = await _rateProvider.GetRateAsync();
-                        if (rate != _lastRate)
+                        if (_state.TryUpdateLastRate(rate))
                         {
-                            _lastRate = rate;
-                            await _notificationService.NotifyRateAsync(_client.Guilds, _lastRate, token);
+                            await _notificationService.NotifyRateAsync(_client.Guilds, rate, token);
                         }
                     }
                 }

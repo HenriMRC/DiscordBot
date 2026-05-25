@@ -35,12 +35,13 @@ internal class Program
 
         DiscordSocketConfig socketConfig = new() { GatewayIntents = GatewayIntents.All };
         DiscordSocketClient client = new(socketConfig);
+        AppState state = new();
         IConfigStore configStore = new FileConfigStore(new JsonHandler());
         IRateProvider rateProvider = new WiseRateProvider();
         INotificationService notificationService = new DiscordNotificationService(ChannelName, logger, configStore);
         ICommandHandler commandHandler = new DiscordCommandHandler(logger, configStore);
 
-        await using BotHost host = new(client, logger, configStore, rateProvider, notificationService, commandHandler);
+        await using BotHost host = new(client, logger, state, configStore, rateProvider, notificationService, commandHandler);
         await host.RunAsync(token, ShutdownCts.Token);
     }
 

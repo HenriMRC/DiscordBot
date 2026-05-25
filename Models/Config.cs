@@ -5,7 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
-namespace DiscordBot.Models;
+namespace discordbot.models;
 
 [JsonConverter(typeof(JsonConverter))]
 public class Config(Dictionary<ulong, Range>? channels)

@@ -1,9 +1,9 @@
-﻿using DiscordBot.Models;
+﻿using discordbot.models;
 using System.IO;
 using System.Text;
 using System.Text.Json;
 
-namespace DiscordBot;
+namespace discordbot;
 
 internal class JsonHandler
 {

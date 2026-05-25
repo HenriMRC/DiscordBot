@@ -1,9 +1,9 @@
-﻿using System.Collections.Generic;
-using System;
+﻿using System;
+using System.Collections.Generic;
 using System.Dynamic;
 using System.Text.Json;
 
-namespace DiscordBot;
+namespace discordbot;
 
 internal static class JsonExtension
 {

@@ -1,7 +1,7 @@
 ﻿using Discord;
 using System;
 
-namespace DiscordBot.Log;
+namespace discordbot.log;
 
 internal class ConsoleWriter : ILogWriter
 {

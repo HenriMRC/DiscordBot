@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace DiscordBot.Log;
+namespace discordbot.log;
 
 public interface ILogWriter : IDisposable
 {

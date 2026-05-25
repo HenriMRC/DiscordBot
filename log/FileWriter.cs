@@ -4,7 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 
-namespace DiscordBot.Log;
+namespace discordbot.log;
 
 internal class FileWriter : ILogWriter
 {

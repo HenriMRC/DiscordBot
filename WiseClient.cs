@@ -2,7 +2,7 @@
 using System.Text;
 using System.Threading.Tasks;
 
-namespace DiscordBot;
+namespace discordbot;
 
 internal struct WiseClient
 {

@@ -1,18 +1,17 @@
 ﻿using Discord;
 using Discord.Rest;
 using Discord.WebSocket;
-using DiscordBot.Log;
-using DiscordBot.Models;
+using discordbot.log;
+using discordbot.models;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace DiscordBot;
+namespace discordbot;
 
 internal class Program
 {
@@ -131,7 +130,7 @@ internal class Program
     private static async Task OnGuildAvailable(SocketGuild guild)
     {
         await Task.Run(() => _logger.Log(LogSeverity.Info, $"(App | Connection): Guild ({guild.Name}) connected."));
-        if (!_config.Channels.TryGetValue(guild.Id, out Models.Range? channel))
+        if (!_config.Channels.TryGetValue(guild.Id, out models.Range? channel))
         {
             channel = new(6.1m, 6.2m);
             _config.Channels.Add(guild.Id, channel);
@@ -239,7 +238,7 @@ internal class Program
         int count = 0;
         foreach (SocketGuild guild in _client.Guilds)
         {
-            if (!_config.Channels.TryGetValue(guild.Id, out Models.Range? range))
+            if (!_config.Channels.TryGetValue(guild.Id, out models.Range? range))
             {
                 range = new(decimal.MinValue, decimal.MaxValue);
                 _config.Channels.Add(guild.Id, range);
@@ -312,7 +311,7 @@ internal class Program
                 else
                 {
                     SocketGuild guild = guildChannel.Guild;
-                    if (!_config.Channels.TryGetValue(guild.Id, out Models.Range? range))
+                    if (!_config.Channels.TryGetValue(guild.Id, out models.Range? range))
                     {
                         range = new(value, decimal.MaxValue);
                         _config.Channels.Add(guild.Id, range);
@@ -340,7 +339,7 @@ internal class Program
                 else
                 {
                     SocketGuild guild = guildChannel.Guild;
-                    if (!_config.Channels.TryGetValue(guild.Id, out Models.Range? range))
+                    if (!_config.Channels.TryGetValue(guild.Id, out models.Range? range))
                     {
                         range = new(decimal.MinValue, value);
                         _config.Channels.Add(guild.Id, range);

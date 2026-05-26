@@ -30,19 +30,24 @@ internal class Program
             .UseSerilog((context, services, loggerConfiguration) =>
             {
                 loggerConfiguration
+#if DEBUG
                     .MinimumLevel.Debug()
+#else
+                    .MinimumLevel.Information()
+#endif
                     .Enrich.FromLogContext()
                     .Enrich.With<SourceContextClassNameEnricher>()
-#if DEBUG
                     .WriteTo.Console(outputTemplate: outputTemplate)
-#endif
+#if LOG_TO_FILE
                     .WriteTo.File(
                         path: "./Logs/log.txt",
                         rollingInterval: RollingInterval.Day,
                         retainedFileCountLimit: 20,
                         fileSizeLimitBytes: 1024 * 1024,
                         rollOnFileSizeLimit: true,
-                        outputTemplate: outputTemplate);
+                        outputTemplate: outputTemplate)
+#endif
+                    ;
             })
             .ConfigureServices(services =>
             {

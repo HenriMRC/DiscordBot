@@ -154,12 +154,8 @@ internal sealed class BotHost
         try
         {
             CancellationToken token = _rateLoopCts.Token;
-            TimeSpan initialDelay = GetDelayUntilNextTick();
-            if (initialDelay > TimeSpan.Zero)
-                await Task.Delay(initialDelay, token);
-
             using PeriodicTimer timer = new(TimeSpan.FromMinutes(5));
-            while (await timer.WaitForNextTickAsync(token))
+            do
             {
                 try
                 {
@@ -176,11 +172,14 @@ internal sealed class BotHost
                 {
                     _logger.LogError(exception, "Error while polling rate.");
                 }
-            }
+            } while (await timer.WaitForNextTickAsync(token));
         }
         catch (OperationCanceledException exception)
         {
-            _logger.LogError(exception, "Rate loop canceled.");
+            if (_rateLoopCts.IsCancellationRequested)
+                _logger.LogInformation("Rate loop cancellation requested.");
+            else
+                _logger.LogCritical(exception, "Rate loop canceled with unexpected error.");
         }
     }
 
@@ -192,21 +191,6 @@ internal sealed class BotHost
             tasks.Add(_notificationService.NotifyGuildAsync(guild, message, cancellationToken));
         }
         await Task.WhenAll(tasks);
-    }
-
-    private static TimeSpan GetDelayUntilNextTick()
-    {
-        DateTime now = DateTime.Now;
-        const int minutes = 5;
-        int roundedMinute = ((now.Minute / minutes) + 1) * minutes;
-        DateTime next = new(now.Year, now.Month, now.Day, now.Hour, 0, 0);
-        next = next.AddMinutes(roundedMinute);
-
-        TimeSpan span = next - DateTime.Now;
-        if (span.TotalMinutes < 0.5d)
-            span = TimeSpan.FromMinutes(0.5d);
-
-        return span;
     }
 
     private string LogBot()

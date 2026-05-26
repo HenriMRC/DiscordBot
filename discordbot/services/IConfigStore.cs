@@ -1,4 +1,5 @@
 using discordbot.models;
+using Range = discordbot.models.Range;
 
 namespace discordbot.services;
 

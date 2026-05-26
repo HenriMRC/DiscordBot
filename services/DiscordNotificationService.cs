@@ -1,20 +1,23 @@
 using Discord;
+using Discord.Rest;
 using Discord.WebSocket;
-using discordbot.log;
 using discordbot.models;
+using Microsoft.Extensions.Logging;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Range = discordbot.models.Range;
 
 namespace discordbot.services;
 
 internal sealed class DiscordNotificationService : INotificationService
 {
-    private readonly Logger _logger;
+    private readonly ILogger<DiscordNotificationService> _logger;
     private readonly IConfigStore _configStore;
 
-    public DiscordNotificationService(Logger logger, IConfigStore configStore)
+    public DiscordNotificationService(ILogger<DiscordNotificationService> logger, IConfigStore configStore)
     {
         _logger = logger;
         _configStore = configStore;
@@ -28,7 +31,7 @@ internal sealed class DiscordNotificationService : INotificationService
         SocketTextChannel[] channels = [.. guild.TextChannels.Where(t => t.Name == channelName)];
         if (channels.Length == 0)
         {
-            _logger.Log(LogSeverity.Warning, $"(App | SendMessage): {guild.Name}({guild.Id}) has no \"{channelName}\" channel");
+            _logger.LogWarning("{GuildName}({GuildId}) has no \"{ChannelName}\" channel", guild.Name, guild.Id, channelName);
             return;
         }
 
@@ -72,7 +75,10 @@ internal sealed class DiscordNotificationService : INotificationService
     private async Task SendAndLogAsync(SocketTextChannel channel, string message, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        IUserMessage sent = await channel.SendMessageAsync(message);
-        _logger.Log(LogSeverity.Info, $"(App | SendMessage): {TaskStatus.RanToCompletion} Message sent: {sent.Content}");
+        Task<RestUserMessage> task = channel.SendMessageAsync(message);
+        IUserMessage sent = await task;
+        using IDisposable? scope =
+            _logger.BeginScope(new Dictionary<string, object?> { ["Scope"] = $"[{task.Status}] " });
+        _logger.LogInformation("Message sent:\n{Content}", sent.Content);
     }
 }

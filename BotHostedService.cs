@@ -17,10 +17,9 @@ internal sealed class BotHostedService : IHostedService
         _settings = settings;
     }
 
-    public Task StartAsync(CancellationToken cancellationToken)
+    public async Task StartAsync(CancellationToken cancellationToken)
     {
         _runTask = _botHost.RunAsync(_settings.Token, _shutdownCts.Token);
-        return Task.CompletedTask;
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)

@@ -1,7 +1,7 @@
 using Discord;
 using Discord.WebSocket;
-using discordbot.log;
 using discordbot.services;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -13,7 +13,7 @@ namespace discordbot;
 internal sealed class BotHost
 {
     private readonly DiscordSocketClient _client;
-    private readonly Logger _logger;
+    private readonly ILogger<BotHost> _logger;
     private readonly AppState _state;
     private readonly IConfigStore _configStore;
     private readonly IRateProvider _rateProvider;
@@ -22,7 +22,7 @@ internal sealed class BotHost
     private Task? _rateLoopTask;
     private readonly CancellationTokenSource _rateLoopCts = new();
 
-    public BotHost(DiscordSocketClient client, Logger logger, AppState state, IConfigStore configStore, IRateProvider rateProvider, INotificationService notificationService, ICommandHandler commandHandler)
+    public BotHost(DiscordSocketClient client, ILogger<BotHost> logger, AppState state, IConfigStore configStore, IRateProvider rateProvider, INotificationService notificationService, ICommandHandler commandHandler)
     {
         _client = client;
         _logger = logger;
@@ -43,8 +43,8 @@ internal sealed class BotHost
     public async Task RunAsync(string token, CancellationToken cancellationToken)
     {
         _configStore.Load();
-        _logger.Log(LogSeverity.Info, "(App | Initialization): Initializing config.");
-        _logger.Log(LogSeverity.Info, "(App | Initialization): Initializing bot.");
+        _logger.LogInformation("Initializing config.");
+        _logger.LogInformation("Initializing bot.");
 
         await _client.LoginAsync(TokenType.Bot, token);
         await _client.StartAsync();
@@ -64,7 +64,7 @@ internal sealed class BotHost
 
     public async Task StopAsync()
     {
-        _logger.Log(LogSeverity.Info, "(App | OnExit): Exiting");
+        _logger.LogInformation("Exiting.");
 
         if (_client.ConnectionState == ConnectionState.Connected)
         {
@@ -81,36 +81,36 @@ internal sealed class BotHost
             }
             catch (Exception exception)
             {
-                _logger.Log(LogSeverity.Error, $"(App | Loop): {exception.Message}");
+                _logger.LogError(exception, "Error while stopping rate loop.");
             }
         }
 
         await _client.StopAsync();
         await _client.LogoutAsync();
 
-        _logger.Log(LogSeverity.Info, "(App | OnExit): Exited");
+        _logger.LogInformation("Exited.");
     }
 
     private async Task OnReady()
     {
-        _logger.Log(LogSeverity.Info, $"(App | Bot): Bot ({_client.CurrentUser.Username}) ready. {LogBot()}");
+        _logger.LogInformation("Bot ({Username}) ready. {Status}", _client.CurrentUser.Username, LogBot());
         _rateLoopTask ??= RunRateLoopAsync();
     }
 
     private async Task OnConnected()
     {
-        _logger.Log(LogSeverity.Info, $"(App | Connection): Bot ({_client.CurrentUser.Username}) connected. {LogBot()}");
+        _logger.LogInformation("Bot ({Username}) connected. {Status}", _client.CurrentUser.Username, LogBot());
     }
 
     private async Task OnDisconnected(Exception exception)
     {
         string username = _client.CurrentUser?.Username ?? "unknown";
-        _logger.Log(LogSeverity.Info, $"(App | Connection): Bot ({username}) disconnected. {LogBot()}");
+        _logger.LogInformation("Bot ({Username}) disconnected. {Status}", username, LogBot());
     }
 
     private async Task OnGuildAvailable(SocketGuild guild)
     {
-        _logger.Log(LogSeverity.Info, $"(App | Connection): Guild ({guild.Name}) connected.");
+        _logger.LogInformation("Guild ({GuildName}) connected.", guild.Name);
         Range channel = _configStore.GetOrCreateRange(guild.Id, 6.1m, 6.2m);
 
         string msg =
@@ -138,11 +138,14 @@ internal sealed class BotHost
 
     private async Task OnDiscordLog(LogMessage logMessage)
     {
-        string message = logMessage.Exception == null
-            ? $"(Discord | {logMessage.Source}): {logMessage.Message}"
-            : $"(Discord | {logMessage.Source}: {logMessage.Message}\nException: {logMessage.Exception.Message}\nStackTrace: {logMessage.Exception.StackTrace}";
+        LogLevel level = MapSeverity(logMessage.Severity);
+        using IDisposable? scope =
+            _logger.BeginScope(new Dictionary<string, object?> { ["Scope"] = $"[Discord.Net/{logMessage.Source}] " });
 
-        _logger.Log(logMessage.Severity, message);
+        if (logMessage.Exception == null)
+            _logger.Log(level, logMessage.Message);
+        else
+            _logger.Log(level, logMessage.Exception, logMessage.Message);
     }
 
     private async Task RunRateLoopAsync()
@@ -170,12 +173,13 @@ internal sealed class BotHost
                 }
                 catch (Exception exception)
                 {
-                    _logger.Log(LogSeverity.Error, $"(App | Loop): {exception.Message}");
+                    _logger.LogError(exception, "Error while polling rate.");
                 }
             }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException exception)
         {
+            _logger.LogError(exception, "Rate loop canceled.");
         }
     }
 
@@ -209,5 +213,19 @@ internal sealed class BotHost
         return $"Bot status: [ {nameof(_client.Activity)}: {_client.Activity?.Name ?? "null"} | " +
                $"{nameof(_client.ConnectionState)}: {_client.ConnectionState} | {nameof(_client.LoginState)}: {_client.LoginState} | " +
                $"{nameof(_client.Status)}: {_client.Status} ]";
+    }
+
+    private static LogLevel MapSeverity(LogSeverity severity)
+    {
+        return severity switch
+        {
+            LogSeverity.Critical => LogLevel.Critical,
+            LogSeverity.Error => LogLevel.Error,
+            LogSeverity.Warning => LogLevel.Warning,
+            LogSeverity.Info => LogLevel.Information,
+            LogSeverity.Verbose => LogLevel.Trace,
+            LogSeverity.Debug => LogLevel.Debug,
+            _ => LogLevel.Information
+        };
     }
 }

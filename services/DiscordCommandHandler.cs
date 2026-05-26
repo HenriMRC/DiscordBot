@@ -1,7 +1,7 @@
 using Discord;
 using Discord.Rest;
 using Discord.WebSocket;
-using discordbot.log;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
@@ -10,10 +10,10 @@ namespace discordbot.services;
 
 internal sealed class DiscordCommandHandler : ICommandHandler
 {
-    private readonly Logger _logger;
+    private readonly ILogger<DiscordCommandHandler> _logger;
     private readonly IConfigStore _configStore;
 
-    public DiscordCommandHandler(Logger logger, IConfigStore configStore)
+    public DiscordCommandHandler(ILogger<DiscordCommandHandler> logger, IConfigStore configStore)
     {
         _logger = logger;
         _configStore = configStore;
@@ -29,7 +29,7 @@ internal sealed class DiscordCommandHandler : ICommandHandler
             return;
         }
 
-        _logger.Log(LogSeverity.Info, $"(App | MessageReceived): {message.Content}");
+        _logger.LogInformation("Message received: {MessageContent}", message.Content);
 
         string content = message.Content;
         string response;
@@ -54,7 +54,7 @@ internal sealed class DiscordCommandHandler : ICommandHandler
         Task<RestUserMessage> sendTask = channel.SendMessageAsync(response, messageReference: new MessageReference(message.Id));
         await sendTask;
 
-        _logger.Log(LogSeverity.Info, $"(App | MessageReceived): Message sent {sendTask.Status}");
+        _logger.LogInformation("Message sent: {Status}", sendTask.Status);
     }
 
     private string HandleMinCommand(string content, SocketMessage message)
@@ -66,7 +66,7 @@ internal sealed class DiscordCommandHandler : ICommandHandler
 
         if (message.Channel is not SocketGuildChannel guildChannel)
         {
-            _logger.Log(LogSeverity.Error, $"Channel type not expected: {message.Channel.Id} | {message.Channel.Name} | {message.Channel.GetType()}");
+            _logger.LogError("Channel type not expected: {ChannelId} | {ChannelName} | {ChannelType}", message.Channel.Id, message.Channel.Name, message.Channel.GetType());
             return "Failed";
         }
 
@@ -85,7 +85,7 @@ internal sealed class DiscordCommandHandler : ICommandHandler
 
         if (message.Channel is not SocketGuildChannel guildChannel)
         {
-            _logger.Log(LogSeverity.Error, $"Channel type not expected: {message.Channel.Id} | {message.Channel.Name} | {message.Channel.GetType()}");
+            _logger.LogError("Channel type not expected: {ChannelId} | {ChannelName} | {ChannelType}", message.Channel.Id, message.Channel.Name, message.Channel.GetType());
             return "Failed";
         }
 

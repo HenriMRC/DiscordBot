@@ -9,7 +9,7 @@ namespace discordbot.services;
 internal sealed class FileConfigStore : IConfigStore
 {
     private const string DefaultChannelName = "bot-cambio";
-    private const string DefaultConfigFile = "./Config.json";
+    private const string DefaultConfigFile = "./config.json";
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
         WriteIndented = true

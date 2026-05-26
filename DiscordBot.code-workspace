@@ -27,7 +27,7 @@
 				"type": "coreclr",
 				"request": "launch",
 				"preLaunchTask": "build",
-				"program": "${workspaceFolder}/bin/Debug/net10.0/DiscordBot.dll",
+				"program": "${workspaceFolder}/discordbot/bin/Debug/net10.0/discordbot.dll",
 				"args": [],
 				"cwd": "${workspaceFolder}",
 				"stopAtEntry": false,

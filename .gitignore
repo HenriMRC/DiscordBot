@@ -1,6 +1,6 @@
 /.vs
-/bin
-/obj
+bin
+obj
 *.user
 discordbot.token
 /Logs

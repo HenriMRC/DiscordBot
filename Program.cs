@@ -1,6 +1,8 @@
 using Discord;
 using Discord.WebSocket;
+using discordbot.hosting;
 using discordbot.logging;
+using discordbot.runtime;
 using discordbot.services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;

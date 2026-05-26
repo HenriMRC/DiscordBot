@@ -1,5 +1,6 @@
 using Discord;
 using Discord.WebSocket;
+using discordbot.runtime;
 using discordbot.services;
 using Microsoft.Extensions.Logging;
 using System;
@@ -8,7 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Range = discordbot.models.Range;
 
-namespace discordbot;
+namespace discordbot.hosting;
 
 internal sealed class BotHost
 {

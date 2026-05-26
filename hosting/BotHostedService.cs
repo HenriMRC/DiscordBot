@@ -1,8 +1,9 @@
 using Microsoft.Extensions.Hosting;
 using System.Threading;
 using System.Threading.Tasks;
+using discordbot.runtime;
 
-namespace discordbot;
+namespace discordbot.hosting;
 
 internal sealed class BotHostedService : IHostedService
 {

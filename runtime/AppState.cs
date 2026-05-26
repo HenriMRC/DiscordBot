@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace discordbot;
+namespace discordbot.runtime;
 
 internal sealed class AppState
 {

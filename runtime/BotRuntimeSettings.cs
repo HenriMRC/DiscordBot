@@ -1,4 +1,4 @@
-namespace discordbot;
+namespace discordbot.runtime;
 
 internal sealed class BotRuntimeSettings
 {

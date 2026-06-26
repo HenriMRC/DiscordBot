@@ -4,7 +4,23 @@
 			"path": "."
 		}
 	],
-	"settings": {},
+	"settings": {
+		"files.exclude": {
+			".vs": true,
+			"*\\obj": true,
+			"*\\*.user": true
+		},
+		"files.watcherExclude": {
+			".vs": true,
+			"*\\obj": true,
+			"*\\*.user": true
+		},
+		"search.exclude": {
+			".vs": true,
+			"*\\obj": true,
+			"*\\*.user": true
+		}
+	},
 	"tasks": {
 		"version": "2.0.0",
 		"tasks": [

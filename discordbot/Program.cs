@@ -7,6 +7,8 @@ using discordbot.services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
+using Serilog.Core;
+using Serilog.Events;
 using System;
 using System.IO;
 using System.Threading.Tasks;
@@ -17,39 +19,19 @@ internal class Program
 {
     static async Task Main(string[] args)
     {
-        string? token = ReadToken(args);
+        ParsedArgs parsedArgs = ParseArgs(args);
+        string? token = parsedArgs.Token ?? ReadTokenFile();
         if (string.IsNullOrWhiteSpace(token))
         {
-            Console.Error.WriteLine("No argument or config file.");
+            Console.Error.WriteLine("No token argument or token file.");
             return;
         }
-
-        const string outputTemplate =
-            "[{Timestamp:yyyy/MM/dd HH:mm:ss.fff}] {Level:u3} [{SourceContext}] {Scope}{Message:lj}{NewLine}{Exception}";
-
+        
         IHost host = Host
             .CreateDefaultBuilder(args)
             .UseSerilog((context, services, loggerConfiguration) =>
             {
-                loggerConfiguration
-#if DEBUG
-                    .MinimumLevel.Debug()
-#else
-                    .MinimumLevel.Information()
-#endif
-                    .Enrich.FromLogContext()
-                    .Enrich.With<SourceContextClassNameEnricher>()
-                    .WriteTo.Console(outputTemplate: outputTemplate)
-#if LOG_TO_FILE
-                    .WriteTo.File(
-                        path: "./Logs/log.txt",
-                        rollingInterval: RollingInterval.Day,
-                        retainedFileCountLimit: 20,
-                        fileSizeLimitBytes: 1024 * 1024,
-                        rollOnFileSizeLimit: true,
-                        outputTemplate: outputTemplate)
-#endif
-                    ;
+                LoggingConfiguration.Configure(loggerConfiguration, parsedArgs.LoggingLevelSwitch);
             })
             .ConfigureServices(services =>
             {
@@ -77,13 +59,43 @@ internal class Program
         }
     }
 
-    private static string? ReadToken(string[] args)
+    internal static ParsedArgs ParseArgs(string[] args)
     {
-        if (args.Length > 0)
+        string? token = null;
+        LogEventLevel minimumLevel = LogEventLevel.Information;
+
+        for (int i = 0; i < args.Length; i++)
         {
-            return args[0];
+            if (string.Equals(args[i], "--token", StringComparison.OrdinalIgnoreCase))
+            {
+                token = ReadOptionValue(args, ref i);
+                continue;
+            }
+
+            if (string.Equals(args[i], "--log-level", StringComparison.OrdinalIgnoreCase))
+            {
+                string? logLevel = ReadOptionValue(args, ref i);
+                minimumLevel = LoggingConfiguration.GetMinimumLevel(logLevel);
+            }
         }
 
+        return new ParsedArgs(token, new LoggingLevelSwitch(minimumLevel));
+    }
+
+    private static string? ReadOptionValue(string[] args, ref int index)
+    {
+        int valueIndex = index + 1;
+        if (valueIndex >= args.Length || args[valueIndex].StartsWith("--", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        index = valueIndex;
+        return args[valueIndex];
+    }
+
+    private static string? ReadTokenFile()
+    {
         FileInfo configFileInfo = new("./discordbot.token");
         if (!configFileInfo.Exists)
         {
@@ -93,4 +105,17 @@ internal class Program
         using StreamReader file = new(configFileInfo.OpenRead());
         return file.ReadToEnd();
     }
+}
+
+internal readonly struct ParsedArgs
+{
+    public ParsedArgs(string? token, LoggingLevelSwitch loggingLevelSwitch)
+    {
+        Token = token;
+        LoggingLevelSwitch = loggingLevelSwitch;
+    }
+
+    public string? Token { get; }
+
+    public LoggingLevelSwitch LoggingLevelSwitch { get; }
 }

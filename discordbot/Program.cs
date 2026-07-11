@@ -20,13 +20,13 @@ internal class Program
     static async Task Main(string[] args)
     {
         ParsedArgs parsedArgs = ParseArgs(args);
-        string? token = parsedArgs.Token ?? ReadTokenFile();
+        string? token = ResolveToken(parsedArgs);
         if (string.IsNullOrWhiteSpace(token))
         {
-            Console.Error.WriteLine("No token argument or token file.");
+            Console.Error.WriteLine("No Discord bot token. Pass --token, set DISCORD_BOT_TOKEN, or create discordbot.token.");
             return;
         }
-        
+
         IHost host = Host
             .CreateDefaultBuilder(args)
             .UseSerilog((context, services, loggerConfiguration) =>
@@ -82,6 +82,14 @@ internal class Program
         return new ParsedArgs(token, new LoggingLevelSwitch(minimumLevel));
     }
 
+    internal static string? ResolveToken(ParsedArgs parsedArgs)
+    {
+        return FirstNonWhiteSpace(
+            parsedArgs.Token,
+            Environment.GetEnvironmentVariable("DISCORD_BOT_TOKEN"),
+            ReadTokenFile());
+    }
+
     private static string? ReadOptionValue(string[] args, ref int index)
     {
         int valueIndex = index + 1;
@@ -104,6 +112,19 @@ internal class Program
 
         using StreamReader file = new(configFileInfo.OpenRead());
         return file.ReadToEnd();
+    }
+
+    private static string? FirstNonWhiteSpace(params string?[] values)
+    {
+        foreach (string? value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value.Trim();
+            }
+        }
+
+        return null;
     }
 }
 

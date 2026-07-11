@@ -26,9 +26,26 @@
 		"tasks": [
 			{
 				"label": "build",
-				"command": "dotnet build -c DEBUG",
+				"command": "dotnet build discordbot.sln --configuration Debug",
 				"type": "shell",
-				"args": []
+				"args": [],
+				"group": "build",
+				"problemMatcher": "$msCompile"
+			},
+			{
+				"label": "test",
+				"command": "dotnet test discordbot.sln --configuration Debug",
+				"type": "shell",
+				"args": [],
+				"group": "test",
+				"problemMatcher": "$msCompile"
+			},
+			{
+				"label": "format:check",
+				"command": "dotnet format discordbot.sln --verify-no-changes --verbosity minimal",
+				"type": "shell",
+				"args": [],
+				"problemMatcher": "$msCompile"
 			}
 		]
 	},

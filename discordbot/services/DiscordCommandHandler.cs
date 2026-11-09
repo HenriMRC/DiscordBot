@@ -29,15 +29,14 @@ internal sealed class DiscordCommandHandler : ICommandHandler
             return;
         }
 
-        _logger.LogInformation("Message received: {MessageContent}", message.Content);
+        if (_logger.IsEnabled(LogLevel.Information))
+            _logger.LogInformation("Message received: {MessageContent}", message.Content);
 
         string content = message.Content;
         string response;
 
         if (content.Equals(cmdUpdate, StringComparison.CurrentCultureIgnoreCase))
-        {
             response = lastRate < 0 ? "Rate not updated yet." : $"{1:n2}€ = {lastRate:n5}R$";
-        }
         else if (content.Equals("help", StringComparison.OrdinalIgnoreCase))
         {
             response = """
@@ -49,30 +48,23 @@ internal sealed class DiscordCommandHandler : ICommandHandler
                 """;
         }
         else if (content.StartsWith("min:"))
-        {
             response = HandleMinCommand(content["min:".Length..], message);
-        }
         else if (content.StartsWith("max:"))
-        {
             response = HandleMaxCommand(content["max:".Length..], message);
-        }
         else
-        {
             response = $"Command unknown:\n{content}";
-        }
 
         Task<RestUserMessage> sendTask = channel.SendMessageAsync(response, messageReference: new MessageReference(message.Id));
         await sendTask;
 
-        _logger.LogInformation("Message sent: {Status}", sendTask.Status);
+        if (_logger.IsEnabled(LogLevel.Information))
+            _logger.LogInformation("Message sent: {Status}", sendTask.Status);
     }
 
     private string HandleMinCommand(string content, SocketMessage message)
     {
         if (!decimal.TryParse(content, out decimal value))
-        {
             return $"Could not parse value: [{content}]";
-        }
 
         if (message.Channel is not SocketGuildChannel guildChannel)
         {
@@ -80,7 +72,7 @@ internal sealed class DiscordCommandHandler : ICommandHandler
             return "Failed";
         }
 
-        discordbot.models.Range range = _configStore.GetOrCreateRange(guildChannel.Guild.Id, value, decimal.MaxValue);
+        models.Range range = _configStore.GetOrCreateRange(guildChannel.Guild.Id, value, decimal.MaxValue);
         range.Minimum = value;
         _configStore.Save();
         return $" - Lower bound: {value:n2}";

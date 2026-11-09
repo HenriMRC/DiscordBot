@@ -16,7 +16,7 @@ internal static class JsonExtension
         ExpandoObject expando = new();
         IDictionary<string, object?> dictionary = expando;
 
-        foreach (var property in element.EnumerateObject())
+        foreach (JsonProperty property in element.EnumerateObject())
             dictionary[property.Name] = ParseValue(property.Value);
 
         return expando;
@@ -39,9 +39,9 @@ internal static class JsonExtension
 
     private static List<object?> ParseArray(JsonElement element)
     {
-        List<object?> list = new();
+        List<object?> list = [];
 
-        foreach (var item in element.EnumerateArray())
+        foreach (JsonElement item in element.EnumerateArray())
             list.Add(ParseValue(item));
 
         return list;

@@ -94,24 +94,28 @@ internal sealed class BotHost
 
     private async Task OnReady()
     {
-        _logger.LogInformation("Bot ({Username}) ready. {Status}", _client.CurrentUser.Username, LogBot());
+        if (_logger.IsEnabled(LogLevel.Information))
+            _logger.LogInformation("Bot ({Username}) ready. {Status}", _client.CurrentUser.Username, LogBot());
         _rateLoopTask ??= RunRateLoopAsync();
     }
 
     private async Task OnConnected()
     {
-        _logger.LogInformation("Bot ({Username}) connected. {Status}", _client.CurrentUser.Username, LogBot());
+        if (_logger.IsEnabled(LogLevel.Information))
+            _logger.LogInformation("Bot ({Username}) connected. {Status}", _client.CurrentUser.Username, LogBot());
     }
 
     private async Task OnDisconnected(Exception exception)
     {
         string username = _client.CurrentUser?.Username ?? "unknown";
-        _logger.LogInformation("Bot ({Username}) disconnected. {Status}", username, LogBot());
+        if (_logger.IsEnabled(LogLevel.Information))
+            _logger.LogInformation("Bot ({Username}) disconnected. {Status}", username, LogBot());
     }
 
     private async Task OnGuildAvailable(SocketGuild guild)
     {
-        _logger.LogInformation("Guild ({GuildName}) connected.", guild.Name);
+        if (_logger.IsEnabled(LogLevel.Information))
+            _logger.LogInformation("Guild ({GuildName}) connected.", guild.Name);
         Range channel = _configStore.GetOrCreateRange(guild.Id, 6.1m, 6.2m);
 
         string msg =
@@ -140,13 +144,12 @@ internal sealed class BotHost
     private async Task OnDiscordLog(LogMessage logMessage)
     {
         LogLevel level = MapSeverity(logMessage.Severity);
-        using IDisposable? scope =
-            _logger.BeginScope(new Dictionary<string, object?> { ["Scope"] = $"[Discord.Net/{logMessage.Source}] " });
 
-        if (logMessage.Exception == null)
-            _logger.Log(level, logMessage.Message);
-        else
-            _logger.Log(level, logMessage.Exception, logMessage.Message);
+        if (_logger.IsEnabled(level))
+        {
+            using IDisposable? scope = _logger.BeginScope(new Dictionary<string, object?> { ["Scope"] = $"[Discord.Net/{logMessage.Source}] " });
+            _logger.Log(level, logMessage.Exception, "{DiscordMessage}", logMessage.Message ?? string.Empty);
+        }
     }
 
     private async Task RunRateLoopAsync()

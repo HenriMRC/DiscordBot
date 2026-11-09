@@ -1,7 +1,5 @@
-using Discord;
 using Discord.Rest;
 using Discord.WebSocket;
-using discordbot.models;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
@@ -35,7 +33,7 @@ internal sealed class DiscordNotificationService : INotificationService
             return;
         }
 
-        List<Task> tasks = new List<Task>(channels.Length);
+        List<Task> tasks = new(channels.Length);
         for (int i = 0; i < channels.Length; i++)
             tasks.Add(SendAndLogAsync(channels[i], message, cancellationToken));
 
@@ -76,9 +74,11 @@ internal sealed class DiscordNotificationService : INotificationService
     {
         cancellationToken.ThrowIfCancellationRequested();
         Task<RestUserMessage> task = channel.SendMessageAsync(message);
-        IUserMessage sent = await task;
-        using IDisposable? scope =
-            _logger.BeginScope(new Dictionary<string, object?> { ["Scope"] = $"[{task.Status}] " });
-        _logger.LogInformation("Message sent:\n{Content}", sent.Content);
+        RestUserMessage sent = await task;
+        if (_logger.IsEnabled(LogLevel.Information))
+        {
+            using IDisposable? scope = _logger.BeginScope(new Dictionary<string, object?> { ["Scope"] = $"[{task.Status}] " });
+            _logger.LogInformation("Message sent:\n{Content}", sent.Content);
+        }
     }
 }

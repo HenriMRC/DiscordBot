@@ -38,6 +38,16 @@ internal sealed class DiscordCommandHandler : ICommandHandler
         {
             response = lastRate < 0 ? "Rate not updated yet." : $"{1:n2}€ = {lastRate:n5}R$";
         }
+        else if (content.Equals("help", StringComparison.OrdinalIgnoreCase))
+        {
+            response = """
+                **Available commands**
+                - `help` shows this list.
+                - `update` posts the latest known EUR to BRL rate.
+                - `min:<decimal>` sets the lower alert threshold for this server.
+                - `max:<decimal>` sets the upper alert threshold for this server.
+                """;
+        }
         else if (content.StartsWith("min:"))
         {
             response = HandleMinCommand(content["min:".Length..], message);

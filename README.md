@@ -53,6 +53,7 @@ The bot reads `config.json` from the repository root at runtime. Use `config.exa
 
 ## Discord Commands
 
+- `help` lists the available commands and their syntax.
 - `update`: posts the latest known rate.
 - `min:<decimal>`: sets the lower alert threshold for the current guild.
 - `max:<decimal>`: sets the upper alert threshold for the current guild.

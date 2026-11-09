@@ -36,7 +36,15 @@ internal class Program
             .ConfigureServices(services =>
             {
                 services.AddSingleton(new BotRuntimeSettings(token));
-                services.AddSingleton(new DiscordSocketConfig { GatewayIntents = GatewayIntents.All });
+
+                {
+                    DiscordSocketConfig config = new()
+                    {
+                        GatewayIntents = GatewayIntents.Guilds | GatewayIntents.GuildMessages | GatewayIntents.MessageContent
+                    };
+                    services.AddSingleton(config);
+                }
+
                 services.AddSingleton<DiscordSocketClient>();
 
                 services.AddSingleton<AppState>();
